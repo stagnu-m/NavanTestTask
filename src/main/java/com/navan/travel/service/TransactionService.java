@@ -7,6 +7,7 @@ import com.navan.travel.dto.*;
 import com.navan.travel.exception.BadRequestException;
 import com.navan.travel.exception.ConflictException;
 import com.navan.travel.exception.NotFoundException;
+import com.navan.travel.model.TransactionType;
 import com.navan.travel.model.entity.*;
 import com.navan.travel.repository.InvoiceLineRepository;
 import com.navan.travel.repository.OffsetLimitRequest;
@@ -25,7 +26,6 @@ import java.util.*;
 @Service
 public class TransactionService {
 
-    private static final Set<String> ALLOWED_TYPES = Set.of("flight", "hotel", "rail", "navan_fee");
     private static final Set<String> ALLOWED_FEE_KINDS = Set.of("trip_fee", "agent_call_fee");
 
     private final TransactionRepository transactionRepository;
@@ -42,8 +42,8 @@ public class TransactionService {
 
     @Transactional
     public synchronized TransactionResponse createTransaction(TransactionRequest request) {
-        if (!ALLOWED_TYPES.contains(request.type())) {
-            throw new BadRequestException("Unknown transaction type: " + request.type());
+        if (request.type() == null || request.type() == TransactionType.UNSUPPORTED) {
+            throw new BadRequestException("Unknown transaction type: " + (request.type() != null ? request.type().getValue() : "null"));
         }
 
         // Check if external_id already exists
@@ -110,8 +110,8 @@ public class TransactionService {
             throw new ConflictException("Transaction is included on an invoice and cannot be updated");
         }
 
-        if (request.type() != null && !ALLOWED_TYPES.contains(request.type())) {
-            throw new BadRequestException("Unknown transaction type: " + request.type());
+        if (request.type() != null && request.type() == TransactionType.UNSUPPORTED) {
+            throw new BadRequestException("Unknown transaction type: " + request.type().getValue());
         }
 
         if (request.occurredAt() != null) {
@@ -128,7 +128,7 @@ public class TransactionService {
         }
 
         if (request.metadata() != null) {
-            String type = request.type() != null ? request.type() : entity.getType();
+            TransactionType type = request.type() != null ? request.type() : entity.getType();
             validateMetadataNode(type, request.metadata());
             populateMetadataEntity(entity, type, request.metadata());
         }
@@ -150,14 +150,17 @@ public class TransactionService {
         transactionRepository.delete(entity);
     }
 
-    public void validateMetadataNode(String type, JsonNode metadata) {
+    public void validateMetadataNode(TransactionType type, JsonNode metadata) {
+        if (type == null || type == TransactionType.UNSUPPORTED) {
+            throw new BadRequestException("Unknown transaction type: " + (type != null ? type.getValue() : "null"));
+        }
         if (metadata == null || metadata.isNull() || !metadata.isObject() || metadata.isEmpty()) {
-            throw new BadRequestException("Metadata must be a non-empty object for transaction type: " + type);
+            throw new BadRequestException("Metadata must be a non-empty object for transaction type: " + type.getValue());
         }
 
         try {
             switch (type) {
-                case "flight" -> {
+                case FLIGHT -> {
                     FlightMetadataDto dto = objectMapper.treeToValue(metadata, FlightMetadataDto.class);
                     if (dto.origin() == null || dto.origin().isBlank() ||
                         dto.destination() == null || dto.destination().isBlank() ||
@@ -172,7 +175,7 @@ public class TransactionService {
                         }
                     }
                 }
-                case "hotel" -> {
+                case HOTEL -> {
                     HotelMetadataDto dto = objectMapper.treeToValue(metadata, HotelMetadataDto.class);
                     if (dto.name() == null || dto.name().isBlank() ||
                         dto.address() == null || dto.checkIn() == null ||
@@ -184,7 +187,7 @@ public class TransactionService {
                         throw new BadRequestException("Hotel address must include street, city, country");
                     }
                 }
-                case "rail" -> {
+                case RAIL -> {
                     RailMetadataDto dto = objectMapper.treeToValue(metadata, RailMetadataDto.class);
                     if (dto.legs() == null || dto.legs().isEmpty()) {
                         throw new BadRequestException("Rail metadata must include at least one leg");
@@ -196,13 +199,13 @@ public class TransactionService {
                         }
                     }
                 }
-                case "navan_fee" -> {
+                case NAVAN_FEE -> {
                     NavanFeeMetadataDto dto = objectMapper.treeToValue(metadata, NavanFeeMetadataDto.class);
                     if (dto.feeKind() == null || !ALLOWED_FEE_KINDS.contains(dto.feeKind())) {
                         throw new BadRequestException("Unknown navan_fee fee_kind: " + (dto.feeKind() != null ? dto.feeKind() : "null"));
                     }
                 }
-                default -> throw new BadRequestException("Unknown transaction type: " + type);
+                default -> throw new BadRequestException("Unknown transaction type: " + type.getValue());
             }
         } catch (JsonProcessingException e) {
             throw new BadRequestException("Malformed metadata JSON: " + e.getMessage());
@@ -234,10 +237,10 @@ public class TransactionService {
         }
     }
 
-    private void populateMetadataEntity(TransactionEntity entity, String type, JsonNode metadataNode) {
+    private void populateMetadataEntity(TransactionEntity entity, TransactionType type, JsonNode metadataNode) {
         try {
             switch (type) {
-                case "flight" -> {
+                case FLIGHT -> {
                     FlightMetadataDto dto = objectMapper.treeToValue(metadataNode, FlightMetadataDto.class);
                     FlightMetadataEntity flightEntity = new FlightMetadataEntity();
                     flightEntity.setTransaction(entity);
@@ -260,7 +263,7 @@ public class TransactionService {
                     }
                     entity.setFlightMetadata(flightEntity);
                 }
-                case "hotel" -> {
+                case HOTEL -> {
                     HotelMetadataDto dto = objectMapper.treeToValue(metadataNode, HotelMetadataDto.class);
                     HotelMetadataEntity hotelEntity = new HotelMetadataEntity();
                     hotelEntity.setTransaction(entity);
@@ -284,7 +287,7 @@ public class TransactionService {
                     }
                     entity.setHotelMetadata(hotelEntity);
                 }
-                case "rail" -> {
+                case RAIL -> {
                     RailMetadataDto dto = objectMapper.treeToValue(metadataNode, RailMetadataDto.class);
                     RailMetadataEntity railEntity = new RailMetadataEntity();
                     railEntity.setTransaction(entity);
@@ -304,7 +307,7 @@ public class TransactionService {
                     }
                     entity.setRailMetadata(railEntity);
                 }
-                case "navan_fee" -> {
+                case NAVAN_FEE -> {
                     NavanFeeMetadataDto dto = objectMapper.treeToValue(metadataNode, NavanFeeMetadataDto.class);
                     NavanFeeMetadataEntity feeEntity = new NavanFeeMetadataEntity();
                     feeEntity.setTransaction(entity);
@@ -313,6 +316,7 @@ public class TransactionService {
                     feeEntity.setRelatedExternalId(dto.relatedExternalId());
                     entity.setNavanFeeMetadata(feeEntity);
                 }
+                default -> throw new BadRequestException("Unknown transaction type: " + type.getValue());
             }
         } catch (JsonProcessingException e) {
             throw new BadRequestException("Failed to parse metadata: " + e.getMessage());
@@ -345,7 +349,7 @@ public class TransactionService {
 
     public Object buildMetadataDto(TransactionEntity entity) {
         return switch (entity.getType()) {
-            case "flight" -> {
+            case FLIGHT -> {
                 FlightMetadataEntity flight = entity.getFlightMetadata();
                 if (flight == null) yield Collections.emptyMap();
                 List<FlightCouponDto> coupons = flight.getCoupons().stream()
@@ -359,7 +363,7 @@ public class TransactionService {
                         .toList();
                 yield new FlightMetadataDto(flight.getOrigin(), flight.getDestination(), flight.getFare(), coupons);
             }
-            case "hotel" -> {
+            case HOTEL -> {
                 HotelMetadataEntity hotel = entity.getHotelMetadata();
                 if (hotel == null) yield Collections.emptyMap();
                 AddressDto address = new AddressDto(hotel.getStreet(), hotel.getCity(), hotel.getCountry());
@@ -376,7 +380,7 @@ public class TransactionService {
                         extras
                 );
             }
-            case "rail" -> {
+            case RAIL -> {
                 RailMetadataEntity rail = entity.getRailMetadata();
                 if (rail == null) yield Collections.emptyMap();
                 List<RailLegDto> legs = rail.getLegs().stream()
@@ -390,7 +394,7 @@ public class TransactionService {
                         .toList();
                 yield new RailMetadataDto(legs);
             }
-            case "navan_fee" -> {
+            case NAVAN_FEE -> {
                 NavanFeeMetadataEntity fee = entity.getNavanFeeMetadata();
                 if (fee == null) yield Collections.emptyMap();
                 yield new NavanFeeMetadataDto(fee.getFeeKind(), fee.getDescription(), fee.getRelatedExternalId());

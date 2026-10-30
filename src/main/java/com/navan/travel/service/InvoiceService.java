@@ -7,6 +7,7 @@ import com.navan.travel.dto.*;
 import com.navan.travel.exception.BadRequestException;
 import com.navan.travel.exception.ConflictException;
 import com.navan.travel.exception.NotFoundException;
+import com.navan.travel.model.TransactionType;
 import com.navan.travel.model.entity.InvoiceEntity;
 import com.navan.travel.model.entity.InvoiceLineEntity;
 import com.navan.travel.model.entity.TransactionEntity;
@@ -171,7 +172,7 @@ public class InvoiceService {
         line.setInvoice(invoice);
         line.setTransactionId(tx.getId());
         line.setExternalId(tx.getExternalId());
-        line.setTransactionType(tx.getType());
+        line.setTransactionType(tx.getType().getValue());
         line.setOccurredAt(tx.getOccurredAt().toString());
         line.setTotal(tx.getTotal().setScale(2, RoundingMode.HALF_UP));
 
@@ -227,7 +228,7 @@ public class InvoiceService {
 
             txSnapshots.add(new TransactionResponse(
                     line.getTransactionId(),
-                    line.getTransactionType(),
+                    TransactionType.fromString(line.getTransactionType()),
                     line.getExternalId(),
                     invoice.getCurrency(),
                     line.getOccurredAt(),

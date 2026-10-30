@@ -2,14 +2,15 @@ package com.navan.travel.dto;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.JsonNode;
+import com.navan.travel.model.TransactionType;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import java.math.BigDecimal;
 import java.util.List;
 
 public record TransactionRequest(
-        @NotBlank(message = "Transaction type is required")
-        String type,
+        @NotNull(message = "Transaction type is required")
+        TransactionType type,
 
         @NotBlank(message = "external_id is required")
         @JsonProperty("external_id")

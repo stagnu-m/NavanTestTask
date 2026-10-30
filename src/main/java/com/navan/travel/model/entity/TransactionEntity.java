@@ -1,5 +1,6 @@
 package com.navan.travel.model.entity;
 
+import com.navan.travel.model.TransactionType;
 import jakarta.persistence.*;
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -19,7 +20,7 @@ public class TransactionEntity {
     private String id;
 
     @Column(name = "type", nullable = false, length = 32)
-    private String type;
+    private TransactionType type;
 
     @Column(name = "external_id", nullable = false, unique = true, length = 128)
     private String externalId;
@@ -84,11 +85,11 @@ public class TransactionEntity {
         this.id = id;
     }
 
-    public String getType() {
+    public TransactionType getType() {
         return type;
     }
 
-    public void setType(String type) {
+    public void setType(TransactionType type) {
         this.type = type;
     }
 
