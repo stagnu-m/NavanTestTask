@@ -25,6 +25,7 @@ erDiagram
 ```
 
 - **Taxes vs Fees Separation:** Government/VAT charges live in `transaction_tax_lines` (`name`, optional `rate`, `amount`), while carrier/merchant charges live in `transaction_fee_lines` (`name`, `amount`). They are never merged into a single bucket.
+- **Strongly Typed `TransactionType` Enum:** Transaction types are defined via a type-safe `TransactionType` enum (`FLIGHT`, `HOTEL`, `RAIL`, `NAVAN_FEE`, and `UNSUPPORTED`). Jackson's `@JsonCreator` parses incoming strings and maps unrecognized values to `UNSUPPORTED`, which is strictly rejected with `400 Bad Request`. A custom JPA `TransactionTypeConverter` stores the canonical lowercase string in SQLite, ensuring relational schema cleanlines and backward compatibility.
 - **Flight:** `flight_metadata` (`origin`, `destination`, `fare`) joined to ordered `flight_coupons` (`flight_number`, `carrier`, `from_location`, `to_location`, `departure`, `arrival`, `coupon_order`).
 - **Hotel:** `hotel_metadata` (`name`, `street`, `city`, `country`, `check_in`, `check_out`, `nights`, `room_rate_per_night`) joined to `hotel_extras` (`name`, `amount`).
 - **Rail:** `rail_metadata` joined to ordered `rail_legs` (`origin`, `destination`, `departure`, `arrival`, `train_number`, `travel_class`, `leg_order`).

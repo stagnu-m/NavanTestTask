@@ -166,6 +166,32 @@ curl -X POST http://localhost:8080/transactions \
   }'
 ```
 
+#### Unknown Transaction Type (Returns 400 Bad Request)
+Unrecognized types map to `TransactionType.UNSUPPORTED` and are rejected:
+```bash
+curl -i -X POST http://localhost:8080/transactions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "type": "spaceship",
+    "external_id": "ship-001",
+    "currency": "EUR",
+    "occurred_at": "2026-03-11T18:00:00Z",
+    "total": 100.0,
+    "tax_lines": [],
+    "fee_lines": [],
+    "metadata": { "detail": "warp drive" }
+  }'
+```
+**Response:**
+```json
+HTTP/1.1 400 Bad Request
+Content-Type: application/json
+
+{
+  "error": "Unknown transaction type: spaceship"
+}
+```
+
 ---
 
 ### 3. Duplicate Transaction Create (Returns 409 Conflict with Existing ID)
