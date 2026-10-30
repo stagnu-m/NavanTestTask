@@ -41,12 +41,12 @@ public class TransactionService {
     }
 
     @Transactional
-    public TransactionResponse createTransaction(TransactionRequest request) {
+    public synchronized TransactionResponse createTransaction(TransactionRequest request) {
         if (!ALLOWED_TYPES.contains(request.type())) {
             throw new BadRequestException("Unknown transaction type: " + request.type());
         }
 
-        // Check if external_id already exists sequentially
+        // Check if external_id already exists
         Optional<TransactionEntity> existingOpt = transactionRepository.findByExternalId(request.externalId());
         if (existingOpt.isPresent()) {
             throw new ConflictException("Transaction with external_id already exists", existingOpt.get().getId());
@@ -70,7 +70,6 @@ public class TransactionService {
             TransactionEntity saved = transactionRepository.saveAndFlush(entity);
             return toResponse(saved);
         } catch (DataIntegrityViolationException ex) {
-            // Concurrent race condition handling: re-query by external_id
             Optional<TransactionEntity> raceExisting = transactionRepository.findByExternalId(request.externalId());
             if (raceExisting.isPresent()) {
                 throw new ConflictException("Transaction with external_id already exists", raceExisting.get().getId());

@@ -43,18 +43,16 @@ public class DatabaseConfig {
                 .type(HikariDataSource.class)
                 .build();
 
-        // Initialize pragmas directly on the newly created database
+        // Configure connection init SQL BEFORE starting the pool
+        dataSource.setConnectionInitSql("PRAGMA busy_timeout = 5000; PRAGMA foreign_keys = ON;");
+
+        // Initialize WAL mode on the database file
         try (Connection connection = dataSource.getConnection();
              Statement stmt = connection.createStatement()) {
             stmt.execute("PRAGMA journal_mode = WAL;");
-            stmt.execute("PRAGMA busy_timeout = 5000;");
-            stmt.execute("PRAGMA foreign_keys = ON;");
         } catch (Exception e) {
             throw new RuntimeException("Failed to initialize SQLite pragmas", e);
         }
-
-        // Ensure every pooled connection enforces foreign keys and busy timeout
-        dataSource.setConnectionInitSql("PRAGMA busy_timeout = 5000; PRAGMA foreign_keys = ON;");
 
         return dataSource;
     }
