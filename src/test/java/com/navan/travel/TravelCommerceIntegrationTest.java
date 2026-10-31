@@ -4,8 +4,6 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.navan.travel.dto.CreateInvoiceRequest;
-import com.navan.travel.dto.InvoiceResponse;
-import com.navan.travel.dto.TransactionResponse;
 import com.navan.travel.model.entity.TransactionEntity;
 import com.navan.travel.repository.InvoiceLineRepository;
 import com.navan.travel.repository.InvoiceRepository;
@@ -19,14 +17,11 @@ import org.springframework.boot.test.web.client.TestRestTemplate;
 import org.springframework.http.*;
 import org.springframework.test.context.ActiveProfiles;
 
-import java.io.File;
 import java.math.BigDecimal;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
 import java.util.concurrent.*;
-import java.util.concurrent.atomic.AtomicInteger;
-
 import static org.assertj.core.api.Assertions.assertThat;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
