@@ -110,7 +110,8 @@ Every endpoint in the service is verified by automated integration tests for bot
 ### 5. Duplicates, Concurrency, and Idempotency
 - **Unique Constraint:** The `transactions` table enforces a database-level `UNIQUE` constraint on `external_id`.
 - **Sequential Duplicates:** Re-posting a known `external_id` queries the unique index and returns **`409 Conflict`** with the existing resource ID (`{"error": "Transaction with external_id already exists", "id": "<existing_id>"}`). Exactly one row is stored.
-- **Concurrent Overlapping Creates:** Two or more overlapping parallel `POST /transactions` requests with the same `external_id` are synchronized at the write boundary and backed by the database unique index. Exactly one thread creates the record (`201 Created`); competing threads catch the constraint and return **`409 Conflict`** with the created transaction's ID.
+- **Concurrent Overlapping Creates:** Two or more overlapping parallel `POST /transactions` requests with the same `external_id` race directly against the database unique index without relying on JVM-level synchronized locks. Exactly one request creates the record (`201 Created`); competing parallel requests catch the constraint violation, look up the winner, and return **`409 Conflict`** with the winning transaction's ID.
+- **Multiple Invoices:** A transaction can be referenced across multiple invoices if distinct billing line items are issued; however, once included on any invoice, the underlying transaction row is permanently frozen against `PATCH` and `DELETE` modifications.
 
 ### 6. Money Scale & Rounding Policy
 - All monetary amounts (`total`, tax amounts, fee amounts, fares, room rates, extras, invoice totals, rollups) use `BigDecimal` with a fixed scale of **2 decimal places** and **`RoundingMode.HALF_UP`**.
@@ -169,7 +170,7 @@ curl -i -X POST http://localhost:8080/transactions \
 
 ### 3. Duplicate Handling (409 Conflict)
 
-Posting an existing `external_id` returns **409 Conflict** with the existing server ID:
+Posting an existing `external_id` returns **409 Conflict** with the existing server ID, preventing duplicate records:
 ```bash
 curl -i -X POST http://localhost:8080/transactions \
   -H "Content-Type: application/json" \
@@ -184,6 +185,13 @@ Content-Type: application/json
   "error": "Transaction with external_id already exists",
   "id": "txn_8e1e791f68744b82bc0e3869273c52e6"
 }
+```
+
+**Verify Exactly One Row Exists:**
+```bash
+# Query the list endpoint and filter by external_id to verify exactly one record exists:
+curl -s "http://localhost:8080/transactions?limit=100" | jq 'map(select(.external_id == "flight-TXL-LHR-2026-03-11")) | length'
+# Output: 1
 ```
 
 ---

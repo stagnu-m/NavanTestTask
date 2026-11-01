@@ -726,4 +726,130 @@ public class TravelCommerceIntegrationTest {
         assertThat(body(res).get("transactions").size()).isEqualTo(1);
         assertThat(body(res).get("totals").get("grand_total").asDouble()).isEqualTo(220.00);
     }
+
+    @Test
+    @DisplayName("27. PATCH metadata in real database updates in-place without Hibernate session conflict")
+    void test27_patchMetadata_inRealDatabase_succeeds() {
+        String flightId = body(restTemplate.postForEntity("/transactions", new HttpEntity<>(seeds.get("flight"), jsonHeaders()), JsonNode.class)).get("id").asText();
+
+        ObjectNode newFlightMeta = objectMapper.createObjectNode();
+        newFlightMeta.put("origin", "BER").put("destination", "JFK").put("fare", 450.00);
+        ObjectNode coupon = newFlightMeta.putArray("coupons").addObject();
+        coupon.put("carrier", "DL").put("flight_number", "DL100")
+                .put("from", "BER").put("to", "JFK")
+                .put("departure", "2026-03-15T10:00:00Z").put("arrival", "2026-03-15T18:00:00Z");
+
+        ObjectNode patchReq = objectMapper.createObjectNode();
+        patchReq.set("metadata", newFlightMeta);
+
+        ResponseEntity<JsonNode> patchRes = restTemplate.exchange(
+                "/transactions/" + flightId,
+                HttpMethod.PATCH,
+                new HttpEntity<>(patchReq, jsonHeaders()),
+                JsonNode.class);
+        assertThat(patchRes.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(body(patchRes).get("metadata").get("origin").asText()).isEqualTo("BER");
+        assertThat(body(patchRes).get("metadata").get("destination").asText()).isEqualTo("JFK");
+        assertThat(body(patchRes).get("metadata").get("fare").asDouble()).isEqualTo(450.00);
+        assertThat(body(patchRes).get("metadata").get("coupons").get(0).get("flight_number").asText()).isEqualTo("DL100");
+
+        // Verify GET returns updated metadata
+        ResponseEntity<JsonNode> getRes = restTemplate.getForEntity("/transactions/" + flightId, JsonNode.class);
+        assertThat(getRes.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(body(getRes).get("metadata").get("origin").asText()).isEqualTo("BER");
+    }
+
+    @Test
+    @DisplayName("28. PATCH with only tax_lines preserves existing fee_lines")
+    void test28_patchTaxLinesOnly_preservesFeeLines() {
+        String flightId = body(restTemplate.postForEntity("/transactions", new HttpEntity<>(seeds.get("flight"), jsonHeaders()), JsonNode.class)).get("id").asText();
+
+        // Flight originally has fee line: YQ 25.00
+        ObjectNode patchReq = objectMapper.createObjectNode();
+        ObjectNode newTax = patchReq.putArray("tax_lines").addObject();
+        newTax.put("name", "New Airport Tax").put("amount", 20.00);
+
+        ResponseEntity<JsonNode> patchRes = restTemplate.exchange(
+                "/transactions/" + flightId,
+                HttpMethod.PATCH,
+                new HttpEntity<>(patchReq, jsonHeaders()),
+                JsonNode.class);
+        assertThat(patchRes.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(body(patchRes).get("tax_lines").size()).isEqualTo(1);
+        assertThat(body(patchRes).get("tax_lines").get(0).get("name").asText()).isEqualTo("New Airport Tax");
+        // Fee lines must be preserved!
+        assertThat(body(patchRes).get("fee_lines").size()).isEqualTo(1);
+        assertThat(body(patchRes).get("fee_lines").get(0).get("name").asText()).isEqualTo("YQ");
+        assertThat(body(patchRes).get("fee_lines").get(0).get("amount").asDouble()).isEqualTo(25.00);
+    }
+
+    @Test
+    @DisplayName("29. PATCH changing type (e.g. flight to hotel) returns 400 Bad Request")
+    void test29_patchTypeMismatch_returns400() {
+        String flightId = body(restTemplate.postForEntity("/transactions", new HttpEntity<>(seeds.get("flight"), jsonHeaders()), JsonNode.class)).get("id").asText();
+
+        ObjectNode patchReq = objectMapper.createObjectNode();
+        patchReq.put("type", "hotel");
+        patchReq.set("metadata", seeds.get("hotel").get("metadata"));
+
+        ResponseEntity<JsonNode> patchRes = restTemplate.exchange(
+                "/transactions/" + flightId,
+                HttpMethod.PATCH,
+                new HttpEntity<>(patchReq, jsonHeaders()),
+                JsonNode.class);
+        assertThat(patchRes.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+
+        // Verify transaction is still a flight
+        ResponseEntity<JsonNode> getRes = restTemplate.getForEntity("/transactions/" + flightId, JsonNode.class);
+        assertThat(getRes.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(body(getRes).get("type").asText()).isEqualTo("flight");
+    }
+
+    @Test
+    @DisplayName("30. Bad inputs return 400 Bad Request (not 500)")
+    void test30_badInputValidation_returns400() {
+        // 1. Tax line with no amount
+        ObjectNode badTax = (ObjectNode) seeds.get("flight").deepCopy();
+        badTax.put("external_id", "bad-tax-1");
+        ((ObjectNode) badTax.get("tax_lines").get(0)).remove("amount");
+        assertThat(restTemplate.postForEntity("/transactions", new HttpEntity<>(badTax, jsonHeaders()), JsonNode.class).getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+
+        // 2. Fee line with no name
+        ObjectNode badFee = (ObjectNode) seeds.get("flight").deepCopy();
+        badFee.put("external_id", "bad-fee-1");
+        ((ObjectNode) badFee.get("fee_lines").get(0)).remove("name");
+        assertThat(restTemplate.postForEntity("/transactions", new HttpEntity<>(badFee, jsonHeaders()), JsonNode.class).getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+
+        // 3. Hotel extra with no amount
+        ObjectNode badExtra = (ObjectNode) seeds.get("hotel").deepCopy();
+        badExtra.put("external_id", "bad-extra-1");
+        ((ObjectNode) badExtra.get("metadata").get("extras").get(0)).remove("amount");
+        assertThat(restTemplate.postForEntity("/transactions", new HttpEntity<>(badExtra, jsonHeaders()), JsonNode.class).getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+
+        // 4. tax_lines: [null]
+        ObjectNode nullTax = (ObjectNode) seeds.get("flight").deepCopy();
+        nullTax.put("external_id", "null-tax-1");
+        nullTax.putArray("tax_lines").addNull();
+        assertThat(restTemplate.postForEntity("/transactions", new HttpEntity<>(nullTax, jsonHeaders()), JsonNode.class).getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+
+        // 5. ?limit=abc
+        assertThat(restTemplate.getForEntity("/transactions?limit=abc", JsonNode.class).getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+
+        // 6. transaction_ids: [null]
+        ObjectNode nullTxInvoice = objectMapper.createObjectNode();
+        nullTxInvoice.putArray("transaction_ids").addNull();
+        assertThat(restTemplate.postForEntity("/invoices", new HttpEntity<>(nullTxInvoice, jsonHeaders()), JsonNode.class).getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+
+        // 7. currency: "EURO"
+        ObjectNode badCurr = (ObjectNode) seeds.get("flight").deepCopy();
+        badCurr.put("external_id", "bad-curr-1");
+        badCurr.put("currency", "EURO");
+        assertThat(restTemplate.postForEntity("/transactions", new HttpEntity<>(badCurr, jsonHeaders()), JsonNode.class).getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+
+        // 8. negative total
+        ObjectNode negTotal = (ObjectNode) seeds.get("flight").deepCopy();
+        negTotal.put("external_id", "neg-total-1");
+        negTotal.put("total", -10.00);
+        assertThat(restTemplate.postForEntity("/transactions", new HttpEntity<>(negTotal, jsonHeaders()), JsonNode.class).getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+    }
 }

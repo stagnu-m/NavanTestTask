@@ -331,14 +331,14 @@ public class TransactionServiceValidationUnitTest {
         assertThat(existing.getTaxLines()).hasSize(1);
         assertThat(existing.getFeeLines()).isEmpty();
 
-        // 2. Update with feeLines only (taxLines null)
+        // 2. Update with feeLines only (taxLines null) -> preserves existing taxLines!
         TransactionRequest req2 = new TransactionRequest(
                 null, null, null, null, null, null,
                 List.of(new FeeLineDto("Fee 1", new BigDecimal("5.00"))),
                 null);
         service.updateTransaction("txn_test", req2);
         assertThat(existing.getFeeLines()).hasSize(1);
-        assertThat(existing.getTaxLines()).isEmpty();
+        assertThat(existing.getTaxLines()).hasSize(1);
 
         // 3. Update with metadata and explicit type
         ObjectNode flightMeta = objectMapper.createObjectNode();

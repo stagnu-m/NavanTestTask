@@ -15,6 +15,7 @@ import com.navan.travel.repository.InvoiceRepository;
 import com.navan.travel.repository.OffsetLimitRequest;
 import com.navan.travel.repository.TransactionRepository;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Slice;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -51,6 +52,9 @@ public class InvoiceService {
         // Deduplication / duplicate id check: 409 on duplicate transaction id listed on same invoice
         Set<String> uniqueIds = new HashSet<>();
         for (String id : txIds) {
+            if (id == null || id.isBlank()) {
+                throw new BadRequestException("transaction_id cannot be null or blank");
+            }
             if (!uniqueIds.add(id)) {
                 throw new ConflictException("Duplicate transaction_id listed on invoice: " + id);
             }
@@ -94,8 +98,8 @@ public class InvoiceService {
             throw new BadRequestException("offset cannot be negative");
         }
 
-        Page<InvoiceEntity> page = invoiceRepository.findAll(new OffsetLimitRequest(limit, offset));
-        return page.getContent().stream()
+        Slice<InvoiceEntity> slice = invoiceRepository.findAllBy(new OffsetLimitRequest(limit, offset));
+        return slice.getContent().stream()
                 .map(this::toInvoiceResponse)
                 .toList();
     }
@@ -112,6 +116,9 @@ public class InvoiceService {
 
         Set<String> uniqueIds = new HashSet<>();
         for (String txId : txIds) {
+            if (txId == null || txId.isBlank()) {
+                throw new BadRequestException("transaction_id cannot be null or blank");
+            }
             if (!uniqueIds.add(txId)) {
                 throw new ConflictException("Duplicate transaction_id listed on invoice: " + txId);
             }

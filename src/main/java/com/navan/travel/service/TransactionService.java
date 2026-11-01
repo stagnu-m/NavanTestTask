@@ -19,6 +19,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.ConcurrencyFailureException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Slice;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
@@ -95,7 +96,8 @@ public class TransactionService {
                 entity.setOccurredAt(parseInstant(request.occurredAt()));
                 entity.setTotal(scaledTotal);
 
-                populateTaxAndFeeLines(entity, request.taxLines(), request.feeLines(), currency);
+                populateTaxLines(entity, request.taxLines(), currency);
+                populateFeeLines(entity, request.feeLines(), currency);
                 populateMetadataEntity(entity, request.type(), request.metadata(), currency);
 
                 TransactionEntity saved = transactionRepository.saveAndFlush(entity);
@@ -134,8 +136,8 @@ public class TransactionService {
         if (offset < 0) {
             throw new BadRequestException("offset cannot be negative");
         }
-        Page<TransactionEntity> page = transactionRepository.findAll(new OffsetLimitRequest(limit, offset));
-        return page.getContent().stream()
+        Slice<TransactionEntity> slice = transactionRepository.findAllBy(new OffsetLimitRequest(limit, offset));
+        return slice.getContent().stream()
                 .map(this::toResponse)
                 .toList();
     }
@@ -176,11 +178,11 @@ public class TransactionService {
             entity.setTotal(validateMoney(request.total(), "total", currency));
         }
 
-        if (request.taxLines() != null || request.feeLines() != null) {
-            populateTaxAndFeeLines(entity,
-                    request.taxLines() != null ? request.taxLines() : Collections.emptyList(),
-                    request.feeLines() != null ? request.feeLines() : Collections.emptyList(),
-                    currency);
+        if (request.taxLines() != null) {
+            populateTaxLines(entity, request.taxLines(), currency);
+        }
+        if (request.feeLines() != null) {
+            populateFeeLines(entity, request.feeLines(), currency);
         }
 
         if (request.metadata() != null) {
@@ -227,7 +229,10 @@ public class TransactionService {
                     }
                     validateMoney(dto.fare(), "flight fare", currency);
                     for (FlightCouponDto coupon : dto.coupons()) {
-                        if (coupon == null || coupon.flightNumber() == null || coupon.flightNumber().isBlank() ||
+                        if (coupon == null) {
+                            throw new BadRequestException("Flight coupon cannot be null");
+                        }
+                        if (coupon.flightNumber() == null || coupon.flightNumber().isBlank() ||
                             coupon.from() == null || coupon.to() == null ||
                             coupon.departure() == null || coupon.arrival() == null) {
                             throw new BadRequestException("Flight coupon must have flight_number, from, to, departure, arrival");
@@ -243,8 +248,14 @@ public class TransactionService {
                     validateMoney(dto.roomRatePerNight(), "hotel room_rate_per_night", currency);
                     if (dto.extras() != null) {
                         for (HotelExtraDto extra : dto.extras()) {
-                            if (extra == null || extra.name() == null || extra.name().isBlank()) {
+                            if (extra == null) {
+                                throw new BadRequestException("Hotel extra cannot be null");
+                            }
+                            if (extra.name() == null || extra.name().isBlank()) {
                                 throw new BadRequestException("Hotel extra name cannot be blank");
+                            }
+                            if (extra.amount() == null) {
+                                throw new BadRequestException("Hotel extra amount cannot be null");
                             }
                             validateMoney(extra.amount(), "hotel extra amount", currency);
                         }
@@ -257,7 +268,10 @@ public class TransactionService {
                         throw new BadRequestException("Rail metadata must include at least one leg");
                     }
                     for (RailLegDto leg : dto.legs()) {
-                        if (leg == null || leg.origin() == null || leg.destination() == null ||
+                        if (leg == null) {
+                            throw new BadRequestException("Rail leg cannot be null");
+                        }
+                        if (leg.origin() == null || leg.destination() == null ||
                             leg.departure() == null || leg.arrival() == null) {
                             throw new BadRequestException("Rail leg must include origin, destination, departure, arrival");
                         }
@@ -311,12 +325,18 @@ public class TransactionService {
         return amount.setScale(maxScale, RoundingMode.HALF_UP);
     }
 
-    private void populateTaxAndFeeLines(TransactionEntity entity, List<TaxLineDto> taxLines, List<FeeLineDto> feeLines, Currency currency) {
+    private void populateTaxLines(TransactionEntity entity, List<TaxLineDto> taxLines, Currency currency) {
         entity.getTaxLines().clear();
         if (taxLines != null) {
             for (TaxLineDto taxDto : taxLines) {
-                if (taxDto == null || taxDto.name() == null || taxDto.name().isBlank()) {
+                if (taxDto == null) {
+                    throw new BadRequestException("Tax line cannot be null");
+                }
+                if (taxDto.name() == null || taxDto.name().isBlank()) {
                     throw new BadRequestException("Tax name cannot be blank");
+                }
+                if (taxDto.amount() == null) {
+                    throw new BadRequestException("Tax amount cannot be null");
                 }
                 BigDecimal amount = validateMoney(taxDto.amount(), "Tax amount", currency);
                 TransactionTaxLineEntity taxEntity = new TransactionTaxLineEntity();
@@ -327,12 +347,20 @@ public class TransactionService {
                 entity.getTaxLines().add(taxEntity);
             }
         }
+    }
 
+    private void populateFeeLines(TransactionEntity entity, List<FeeLineDto> feeLines, Currency currency) {
         entity.getFeeLines().clear();
         if (feeLines != null) {
             for (FeeLineDto feeDto : feeLines) {
-                if (feeDto == null || feeDto.name() == null || feeDto.name().isBlank()) {
+                if (feeDto == null) {
+                    throw new BadRequestException("Fee line cannot be null");
+                }
+                if (feeDto.name() == null || feeDto.name().isBlank()) {
                     throw new BadRequestException("Fee name cannot be blank");
+                }
+                if (feeDto.amount() == null) {
+                    throw new BadRequestException("Fee amount cannot be null");
                 }
                 BigDecimal amount = validateMoney(feeDto.amount(), "Fee amount", currency);
                 TransactionFeeLineEntity feeEntity = new TransactionFeeLineEntity();
@@ -349,12 +377,17 @@ public class TransactionService {
             switch (type) {
                 case FLIGHT -> {
                     FlightMetadataDto dto = objectMapper.treeToValue(metadataNode, FlightMetadataDto.class);
-                    FlightMetadataEntity flightEntity = new FlightMetadataEntity();
-                    flightEntity.setTransaction(entity);
+                    FlightMetadataEntity flightEntity = entity.getFlightMetadata();
+                    if (flightEntity == null) {
+                        flightEntity = new FlightMetadataEntity();
+                        flightEntity.setTransaction(entity);
+                        entity.setFlightMetadata(flightEntity);
+                    }
                     flightEntity.setOrigin(dto.origin());
                     flightEntity.setDestination(dto.destination());
                     flightEntity.setFare(validateMoney(dto.fare(), "flight fare", currency));
 
+                    flightEntity.getCoupons().clear();
                     int order = 0;
                     for (FlightCouponDto c : dto.coupons()) {
                         FlightCouponEntity couponEntity = new FlightCouponEntity();
@@ -368,12 +401,15 @@ public class TransactionService {
                         couponEntity.setArrival(c.arrival());
                         flightEntity.getCoupons().add(couponEntity);
                     }
-                    entity.setFlightMetadata(flightEntity);
                 }
                 case HOTEL -> {
                     HotelMetadataDto dto = objectMapper.treeToValue(metadataNode, HotelMetadataDto.class);
-                    HotelMetadataEntity hotelEntity = new HotelMetadataEntity();
-                    hotelEntity.setTransaction(entity);
+                    HotelMetadataEntity hotelEntity = entity.getHotelMetadata();
+                    if (hotelEntity == null) {
+                        hotelEntity = new HotelMetadataEntity();
+                        hotelEntity.setTransaction(entity);
+                        entity.setHotelMetadata(hotelEntity);
+                    }
                     hotelEntity.setName(dto.name());
                     hotelEntity.setStreet(dto.address().street());
                     hotelEntity.setCity(dto.address().city());
@@ -383,6 +419,7 @@ public class TransactionService {
                     hotelEntity.setNights(dto.nights());
                     hotelEntity.setRoomRatePerNight(validateMoney(dto.roomRatePerNight(), "hotel room_rate_per_night", currency));
 
+                    hotelEntity.getExtras().clear();
                     if (dto.extras() != null) {
                         for (HotelExtraDto extraDto : dto.extras()) {
                             HotelExtraEntity extraEntity = new HotelExtraEntity();
@@ -392,13 +429,17 @@ public class TransactionService {
                             hotelEntity.getExtras().add(extraEntity);
                         }
                     }
-                    entity.setHotelMetadata(hotelEntity);
                 }
                 case RAIL -> {
                     RailMetadataDto dto = objectMapper.treeToValue(metadataNode, RailMetadataDto.class);
-                    RailMetadataEntity railEntity = new RailMetadataEntity();
-                    railEntity.setTransaction(entity);
+                    RailMetadataEntity railEntity = entity.getRailMetadata();
+                    if (railEntity == null) {
+                        railEntity = new RailMetadataEntity();
+                        railEntity.setTransaction(entity);
+                        entity.setRailMetadata(railEntity);
+                    }
 
+                    railEntity.getLegs().clear();
                     int order = 0;
                     for (RailLegDto legDto : dto.legs()) {
                         RailLegEntity legEntity = new RailLegEntity();
@@ -412,15 +453,18 @@ public class TransactionService {
                         legEntity.setTravelClass(legDto.travelClass());
                         railEntity.getLegs().add(legEntity);
                     }
-                    entity.setRailMetadata(railEntity);
                 }
                 case NAVAN_FEE -> {
                     NavanFeeMetadataDto dto = objectMapper.treeToValue(metadataNode, NavanFeeMetadataDto.class);
-                    NavanFeeMetadataEntity feeEntity = new NavanFeeMetadataEntity();
-                    feeEntity.setTransaction(entity);
+                    NavanFeeMetadataEntity feeEntity = entity.getNavanFeeMetadata();
+                    if (feeEntity == null) {
+                        feeEntity = new NavanFeeMetadataEntity();
+                        feeEntity.setTransaction(entity);
+                        entity.setNavanFeeMetadata(feeEntity);
+                    }
                     feeEntity.setFeeKind(dto.feeKind());
                     feeEntity.setDescription(dto.description());
-                    entity.setNavanFeeMetadata(feeEntity);
+                    feeEntity.setRelatedExternalId(dto.relatedExternalId());
                 }
             }
         } catch (JsonProcessingException e) {

@@ -29,11 +29,11 @@ public record TransactionRequest(
 
         @NotNull(message = "tax_lines is required")
         @JsonProperty("tax_lines")
-        List<@Valid TaxLineDto> taxLines,
+        List<@NotNull(message = "Tax line cannot be null") @Valid TaxLineDto> taxLines,
 
         @NotNull(message = "fee_lines is required")
         @JsonProperty("fee_lines")
-        List<@Valid FeeLineDto> feeLines,
+        List<@NotNull(message = "Fee line cannot be null") @Valid FeeLineDto> feeLines,
 
         @NotNull(message = "metadata is required")
         JsonNode metadata
