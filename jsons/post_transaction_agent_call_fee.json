@@ -1,0 +1,14 @@
+{
+  "type": "navan_fee",
+  "external_id": "fee-agent-001",
+  "currency": "EUR",
+  "occurred_at": "2026-03-11T06:50:00Z",
+  "total": 15.00,
+  "tax_lines": [],
+  "fee_lines": [],
+  "metadata": {
+    "fee_kind": "agent_call_fee",
+    "description": "Phone support assist fee",
+    "related_external_id": "flight-TXL-LHR-2026-03-11"
+  }
+}

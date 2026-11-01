@@ -1,0 +1,9 @@
+{
+  "transaction_ids": [
+    "REPLACE_WITH_FLIGHT_ID",
+    "REPLACE_WITH_HOTEL_ID",
+    "REPLACE_WITH_RAIL_ID",
+    "REPLACE_WITH_TRIP_FEE_ID",
+    "REPLACE_WITH_AGENT_FEE_ID"
+  ]
+}

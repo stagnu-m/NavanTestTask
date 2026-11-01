@@ -1,0 +1,14 @@
+{
+  "type": "navan_fee",
+  "external_id": "fee-trip-001",
+  "currency": "EUR",
+  "occurred_at": "2026-03-11T06:45:00Z",
+  "total": 25.00,
+  "tax_lines": [],
+  "fee_lines": [],
+  "metadata": {
+    "fee_kind": "trip_fee",
+    "description": "Standard booking fee for trip",
+    "related_external_id": "flight-TXL-LHR-2026-03-11"
+  }
+}

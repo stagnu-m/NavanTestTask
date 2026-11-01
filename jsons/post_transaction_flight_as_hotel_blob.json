@@ -1,0 +1,21 @@
+{
+  "type": "flight",
+  "external_id": "flight-as-hotel-blob-001",
+  "currency": "EUR",
+  "occurred_at": "2026-03-11T06:40:00Z",
+  "total": 220.00,
+  "tax_lines": [],
+  "fee_lines": [],
+  "metadata": {
+    "name": "Hotel Mitte London",
+    "address": {
+      "street": "12 Kingsway",
+      "city": "London",
+      "country": "GB"
+    },
+    "check_in": "2026-03-11",
+    "check_out": "2026-03-13",
+    "nights": 2,
+    "room_rate_per_night": 140.00
+  }
+}

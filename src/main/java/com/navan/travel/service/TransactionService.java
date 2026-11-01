@@ -164,7 +164,7 @@ public class TransactionService {
                     FlightMetadataDto dto = objectMapper.treeToValue(metadata, FlightMetadataDto.class);
                     if (dto.origin() == null || dto.origin().isBlank() ||
                         dto.destination() == null || dto.destination().isBlank() ||
-                        dto.fare() == null || dto.coupons() == null) {
+                        dto.fare() == null || dto.coupons() == null || dto.coupons().isEmpty()) {
                         throw new BadRequestException("Invalid flight metadata: origin, destination, fare, and coupons are required");
                     }
                     for (FlightCouponDto coupon : dto.coupons()) {

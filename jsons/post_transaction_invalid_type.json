@@ -1,0 +1,13 @@
+{
+  "type": "spaceship",
+  "external_id": "spaceship-MARS-2026-03-11",
+  "currency": "EUR",
+  "occurred_at": "2026-03-11T06:40:00Z",
+  "total": 50000.00,
+  "tax_lines": [],
+  "fee_lines": [],
+  "metadata": {
+    "launch_pad": "LC-39A",
+    "planet": "Mars"
+  }
+}

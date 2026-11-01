@@ -1,0 +1,29 @@
+{
+  "type": "rail",
+  "external_id": "rail-LON-PAR-2026-03-13",
+  "currency": "EUR",
+  "occurred_at": "2026-03-13T09:15:00Z",
+  "total": 94.00,
+  "tax_lines": [],
+  "fee_lines": [],
+  "metadata": {
+    "legs": [
+      {
+        "origin": "London St Pancras",
+        "destination": "Lille Europe",
+        "departure": "2026-03-13T10:24:00Z",
+        "arrival": "2026-03-13T12:56:00Z",
+        "train_number": "EST 9114",
+        "travel_class": "Standard"
+      },
+      {
+        "origin": "Lille Europe",
+        "destination": "Paris Nord",
+        "departure": "2026-03-13T13:30:00Z",
+        "arrival": "2026-03-13T14:32:00Z",
+        "train_number": "TGV 7034",
+        "travel_class": "Standard"
+      }
+    ]
+  }
+}

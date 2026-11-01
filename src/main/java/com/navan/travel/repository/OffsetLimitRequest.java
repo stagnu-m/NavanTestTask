@@ -73,4 +73,16 @@ public class OffsetLimitRequest implements Pageable {
     public boolean hasPrevious() {
         return offset > 0;
     }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (!(o instanceof OffsetLimitRequest that)) return false;
+        return limit == that.limit && offset == that.offset && sort.equals(that.sort);
+    }
+
+    @Override
+    public int hashCode() {
+        return java.util.Objects.hash(limit, offset, sort);
+    }
 }

@@ -1,0 +1,10 @@
+{
+  "type": "flight",
+  "external_id": "flight-empty-meta-001",
+  "currency": "EUR",
+  "occurred_at": "2026-03-11T06:40:00Z",
+  "total": 220.00,
+  "tax_lines": [],
+  "fee_lines": [],
+  "metadata": {}
+}

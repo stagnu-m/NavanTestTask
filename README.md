@@ -16,11 +16,24 @@ A production-grade microservice built with **Java 21**, **Spring Boot 3.3.5**, a
 ```
 The application will start on `http://localhost:8080` backed by the SQLite database `./data/travel_invoice.db`.
 
-### 2. Run All Automated Tests (One Command)
+### 2. Run All Automated Tests & Check Coverage
 ```bash
-./gradlew test
+./gradlew test jacocoTestReport
 ```
-Executes the comprehensive integration test suite covering all 12 test scenarios (seed validation, concurrency races, snapshot immutability, freeze rules, and pagination boundaries).
+Executes the comprehensive 32-test suite covering every endpoint, failure scenario, concurrency race, and freeze rule.
+- **Coverage report:** `build/reports/jacoco/test/html/index.html` (Overall: **87.91% line coverage**, **89.26% instruction coverage**).
+- **Enforce 80% rule:**
+```bash
+./gradlew jacocoTestCoverageVerification
+```
+
+### 3. Manual Testing via `jsons/` Directory
+The `jsons/` directory contains ready-to-use payloads for testing all endpoints and failure scenarios:
+- `post_transaction_flight.json`, `post_transaction_hotel.json`, `post_transaction_rail.json`, `post_transaction_trip_fee.json`, `post_transaction_agent_call_fee.json`
+- `post_transaction_duplicate.json` (409 Conflict)
+- `post_transaction_invalid_type.json`, `post_transaction_invalid_fee_kind.json`, `post_transaction_empty_metadata.json`, `post_transaction_flight_as_hotel_blob.json` (400 Bad Request)
+- `patch_transaction.json`, `post_invoice_single.json`, `post_invoice_trip.json`, `post_invoice_mixed_currency.json`, `post_invoice_duplicate_id.json`, `post_invoice_empty.json`, `patch_invoice.json`
+See [`jsons/README.md`](file:///Users/miha/Projects/NavanTestTask/jsons/README.md) for curl command examples using these payloads.
 
 ---
 

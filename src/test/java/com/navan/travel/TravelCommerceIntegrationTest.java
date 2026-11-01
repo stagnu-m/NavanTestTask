@@ -412,4 +412,306 @@ public class TravelCommerceIntegrationTest {
         assertThat(res.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(res.getBody().get("status").asText()).isEqualTo("UP");
     }
+
+    @Test
+    @DisplayName("13. GET /transactions/{id} not found returns 404")
+    void test13_getTransaction_notFound_returns404() {
+        ResponseEntity<JsonNode> res = restTemplate.getForEntity("/transactions/txn_nonexistent", JsonNode.class);
+        assertThat(res.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+        assertThat(res.getBody().get("error").asText()).contains("not found");
+    }
+
+    @Test
+    @DisplayName("14. GET /transactions with negative offset or zero limit returns 400")
+    void test14_listTransactions_invalidPagination_returns400() {
+        ResponseEntity<JsonNode> res1 = restTemplate.getForEntity("/transactions?limit=0", JsonNode.class);
+        assertThat(res1.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+
+        ResponseEntity<JsonNode> res2 = restTemplate.getForEntity("/transactions?limit=-5", JsonNode.class);
+        assertThat(res2.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+
+        ResponseEntity<JsonNode> res3 = restTemplate.getForEntity("/transactions?offset=-1", JsonNode.class);
+        assertThat(res3.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+    }
+
+    @Test
+    @DisplayName("15. PATCH unbilled transaction succeeds and updates fields")
+    void test15_patchUnbilledTransaction_success() {
+        ResponseEntity<JsonNode> createRes = restTemplate.postForEntity(
+                "/transactions",
+                new HttpEntity<>(seeds.get("flight"), jsonHeaders()),
+                JsonNode.class);
+        String txId = createRes.getBody().get("id").asText();
+
+        String patchJson = "{\"total\": 299.99, \"occurred_at\": \"2026-03-12T10:00:00Z\"}";
+        ResponseEntity<JsonNode> patchRes = restTemplate.exchange(
+                "/transactions/" + txId,
+                HttpMethod.PATCH,
+                new HttpEntity<>(patchJson, jsonHeaders()),
+                JsonNode.class);
+
+        assertThat(patchRes.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(patchRes.getBody().get("total").asDouble()).isEqualTo(299.99);
+        assertThat(patchRes.getBody().get("occurred_at").asText()).isEqualTo("2026-03-12T10:00:00Z");
+
+        // Verify GET also returns the updated total
+        ResponseEntity<JsonNode> getRes = restTemplate.getForEntity("/transactions/" + txId, JsonNode.class);
+        assertThat(getRes.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(getRes.getBody().get("total").asDouble()).isEqualTo(299.99);
+    }
+
+    @Test
+    @DisplayName("16. PATCH non-existent transaction returns 404")
+    void test16_patchTransaction_notFound_returns404() {
+        String patchJson = "{\"total\": 100.00}";
+        ResponseEntity<JsonNode> patchRes = restTemplate.exchange(
+                "/transactions/txn_nonexistent",
+                HttpMethod.PATCH,
+                new HttpEntity<>(patchJson, jsonHeaders()),
+                JsonNode.class);
+        assertThat(patchRes.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+    }
+
+    @Test
+    @DisplayName("17. PATCH transaction with invalid type or invalid date returns 400")
+    void test17_patchTransaction_invalidData_returns400() {
+        ResponseEntity<JsonNode> createRes = restTemplate.postForEntity(
+                "/transactions",
+                new HttpEntity<>(seeds.get("flight"), jsonHeaders()),
+                JsonNode.class);
+        String txId = createRes.getBody().get("id").asText();
+
+        // Invalid type
+        ResponseEntity<JsonNode> res1 = restTemplate.exchange(
+                "/transactions/" + txId,
+                HttpMethod.PATCH,
+                new HttpEntity<>("{\"type\": \"spaceship\"}", jsonHeaders()),
+                JsonNode.class);
+        assertThat(res1.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+
+        // Invalid date
+        ResponseEntity<JsonNode> res2 = restTemplate.exchange(
+                "/transactions/" + txId,
+                HttpMethod.PATCH,
+                new HttpEntity<>("{\"occurred_at\": \"not-a-date\"}", jsonHeaders()),
+                JsonNode.class);
+        assertThat(res2.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+    }
+
+    @Test
+    @DisplayName("18. DELETE unbilled transaction succeeds (204) and removes record")
+    void test18_deleteUnbilledTransaction_success() {
+        ResponseEntity<JsonNode> createRes = restTemplate.postForEntity(
+                "/transactions",
+                new HttpEntity<>(seeds.get("flight"), jsonHeaders()),
+                JsonNode.class);
+        String txId = createRes.getBody().get("id").asText();
+
+        ResponseEntity<Void> delRes = restTemplate.exchange(
+                "/transactions/" + txId,
+                HttpMethod.DELETE,
+                null,
+                Void.class);
+        assertThat(delRes.getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
+
+        // Verify GET returns 404
+        ResponseEntity<JsonNode> getRes = restTemplate.getForEntity("/transactions/" + txId, JsonNode.class);
+        assertThat(getRes.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+
+        // Verify database is empty
+        assertThat(transactionRepository.findById(txId)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("19. DELETE non-existent transaction returns 404")
+    void test19_deleteTransaction_notFound_returns404() {
+        ResponseEntity<Void> delRes = restTemplate.exchange(
+                "/transactions/txn_nonexistent",
+                HttpMethod.DELETE,
+                null,
+                Void.class);
+        assertThat(delRes.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+    }
+
+    @Test
+    @DisplayName("20. POST /transactions validation errors: empty metadata, cross-type metadata, malformed JSON return 400")
+    void test20_createTransaction_validationErrors_returns400() {
+        // Empty metadata {}
+        ObjectNode emptyMeta = (ObjectNode) seeds.get("flight").deepCopy();
+        emptyMeta.set("metadata", objectMapper.createObjectNode());
+        emptyMeta.put("external_id", "empty-meta-tx");
+        ResponseEntity<JsonNode> resEmpty = restTemplate.postForEntity("/transactions", new HttpEntity<>(emptyMeta, jsonHeaders()), JsonNode.class);
+        assertThat(resEmpty.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+
+        // Flight with hotel metadata (do not store flight as hotel blob)
+        ObjectNode flightWithHotelMeta = (ObjectNode) seeds.get("flight").deepCopy();
+        flightWithHotelMeta.set("metadata", seeds.get("hotel").get("metadata"));
+        flightWithHotelMeta.put("external_id", "flight-with-hotel-meta");
+        ResponseEntity<JsonNode> resCross = restTemplate.postForEntity("/transactions", new HttpEntity<>(flightWithHotelMeta, jsonHeaders()), JsonNode.class);
+        assertThat(resCross.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+
+        // Flight with empty coupons array
+        ObjectNode flightEmptyCoupons = (ObjectNode) seeds.get("flight").deepCopy();
+        ((ObjectNode) flightEmptyCoupons.get("metadata")).putArray("coupons");
+        flightEmptyCoupons.put("external_id", "flight-empty-coupons");
+        ResponseEntity<JsonNode> resEmptyCoupons = restTemplate.postForEntity("/transactions", new HttpEntity<>(flightEmptyCoupons, jsonHeaders()), JsonNode.class);
+        assertThat(resEmptyCoupons.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+
+        // Hotel with missing address fields
+        ObjectNode hotelMissingAddress = (ObjectNode) seeds.get("hotel").deepCopy();
+        ((ObjectNode) hotelMissingAddress.get("metadata")).set("address", objectMapper.createObjectNode());
+        hotelMissingAddress.put("external_id", "hotel-missing-addr");
+        ResponseEntity<JsonNode> resHotelBad = restTemplate.postForEntity("/transactions", new HttpEntity<>(hotelMissingAddress, jsonHeaders()), JsonNode.class);
+        assertThat(resHotelBad.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+
+        // Rail with empty legs
+        ObjectNode railEmptyLegs = (ObjectNode) seeds.get("rail").deepCopy();
+        ((ObjectNode) railEmptyLegs.get("metadata")).putArray("legs");
+        railEmptyLegs.put("external_id", "rail-empty-legs");
+        ResponseEntity<JsonNode> resRailBad = restTemplate.postForEntity("/transactions", new HttpEntity<>(railEmptyLegs, jsonHeaders()), JsonNode.class);
+        assertThat(resRailBad.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+
+        // Invalid ISO timestamp
+        ObjectNode badDate = (ObjectNode) seeds.get("flight").deepCopy();
+        badDate.put("occurred_at", "invalid-date");
+        badDate.put("external_id", "bad-date-tx");
+        ResponseEntity<JsonNode> resDate = restTemplate.postForEntity("/transactions", new HttpEntity<>(badDate, jsonHeaders()), JsonNode.class);
+        assertThat(resDate.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+
+        // Missing required field: external_id missing
+        ObjectNode missingExtId = (ObjectNode) seeds.get("flight").deepCopy();
+        missingExtId.remove("external_id");
+        ResponseEntity<JsonNode> resMissingField = restTemplate.postForEntity("/transactions", new HttpEntity<>(missingExtId, jsonHeaders()), JsonNode.class);
+        assertThat(resMissingField.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+
+        // Malformed JSON string
+        ResponseEntity<JsonNode> resMalformed = restTemplate.postForEntity("/transactions", new HttpEntity<>("{not json}", jsonHeaders()), JsonNode.class);
+        assertThat(resMalformed.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+    }
+
+    @Test
+    @DisplayName("21. POST /invoices failures: empty ids, not found tx, duplicate tx in list")
+    void test21_createInvoice_failures() {
+        // Empty request
+        ResponseEntity<JsonNode> resEmpty = restTemplate.postForEntity("/invoices", new HttpEntity<>("{}", jsonHeaders()), JsonNode.class);
+        assertThat(resEmpty.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+
+        // Empty transaction_ids list
+        ResponseEntity<JsonNode> resEmptyList = restTemplate.postForEntity("/invoices", new HttpEntity<>("{\"transaction_ids\": []}", jsonHeaders()), JsonNode.class);
+        assertThat(resEmptyList.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+
+        // Non-existent transaction ID -> 404
+        ResponseEntity<JsonNode> resNotFound = restTemplate.postForEntity("/invoices", new HttpEntity<>("{\"transaction_ids\": [\"txn_nonexistent\"]}", jsonHeaders()), JsonNode.class);
+        assertThat(resNotFound.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+
+        // Duplicate transaction ID in list -> 409
+        String flightId = restTemplate.postForEntity("/transactions", new HttpEntity<>(seeds.get("flight"), jsonHeaders()), JsonNode.class).getBody().get("id").asText();
+        ResponseEntity<JsonNode> resDup = restTemplate.postForEntity(
+                "/invoices",
+                new HttpEntity<>(new CreateInvoiceRequest(null, List.of(flightId, flightId)), jsonHeaders()),
+                JsonNode.class);
+        assertThat(resDup.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+    }
+
+    @Test
+    @DisplayName("22. GET /invoices/{id} not found returns 404")
+    void test22_getInvoice_notFound_returns404() {
+        ResponseEntity<JsonNode> res = restTemplate.getForEntity("/invoices/inv_nonexistent", JsonNode.class);
+        assertThat(res.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+    }
+
+    @Test
+    @DisplayName("23. GET /invoices pagination success and error validation")
+    void test23_listInvoices_pagination_successAndFailure() {
+        String flightId = restTemplate.postForEntity("/transactions", new HttpEntity<>(seeds.get("flight"), jsonHeaders()), JsonNode.class).getBody().get("id").asText();
+        String hotelId = restTemplate.postForEntity("/transactions", new HttpEntity<>(seeds.get("hotel"), jsonHeaders()), JsonNode.class).getBody().get("id").asText();
+
+        restTemplate.postForEntity("/invoices", new HttpEntity<>(new CreateInvoiceRequest(flightId, null), jsonHeaders()), JsonNode.class);
+        restTemplate.postForEntity("/invoices", new HttpEntity<>(new CreateInvoiceRequest(hotelId, null), jsonHeaders()), JsonNode.class);
+
+        // Success list
+        ResponseEntity<JsonNode> listRes = restTemplate.getForEntity("/invoices", JsonNode.class);
+        assertThat(listRes.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(listRes.getBody().size()).isEqualTo(2);
+
+        // Limit and offset
+        ResponseEntity<JsonNode> pageRes = restTemplate.getForEntity("/invoices?limit=1&offset=1", JsonNode.class);
+        assertThat(pageRes.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(pageRes.getBody().size()).isEqualTo(1);
+
+        // limit > 100 -> 400
+        assertThat(restTemplate.getForEntity("/invoices?limit=101", JsonNode.class).getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+
+        // limit < 1 -> 400
+        assertThat(restTemplate.getForEntity("/invoices?limit=0", JsonNode.class).getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+
+        // offset < 0 -> 400
+        assertThat(restTemplate.getForEntity("/invoices?offset=-1", JsonNode.class).getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+    }
+
+    @Test
+    @DisplayName("24. PATCH /invoices/{id} updates snapshot lines, recalculates totals, and validates errors")
+    void test24_patchInvoice_successAndFailures() throws Exception {
+        String flightId = restTemplate.postForEntity("/transactions", new HttpEntity<>(seeds.get("flight"), jsonHeaders()), JsonNode.class).getBody().get("id").asText();
+        String hotelId = restTemplate.postForEntity("/transactions", new HttpEntity<>(seeds.get("hotel"), jsonHeaders()), JsonNode.class).getBody().get("id").asText();
+        String railId = restTemplate.postForEntity("/transactions", new HttpEntity<>(seeds.get("rail"), jsonHeaders()), JsonNode.class).getBody().get("id").asText();
+
+        // USD transaction for mixed currency test
+        String usdPayload = objectMapper.writeValueAsString(seeds.get("trip_fee")).replace("\"EUR\"", "\"USD\"").replace("fee-trip-001", "fee-trip-usd");
+        String usdId = restTemplate.postForEntity("/transactions", new HttpEntity<>(usdPayload, jsonHeaders()), JsonNode.class).getBody().get("id").asText();
+
+        // Create invoice with [flightId]
+        ResponseEntity<JsonNode> invRes = restTemplate.postForEntity("/invoices", new HttpEntity<>(new CreateInvoiceRequest(flightId, null), jsonHeaders()), JsonNode.class);
+        String invId = invRes.getBody().get("id").asText();
+        assertThat(invRes.getBody().get("totals").get("grand_total").asDouble()).isEqualTo(220.00);
+
+        // PATCH invoice to [hotelId, railId]
+        CreateInvoiceRequest patchReq = new CreateInvoiceRequest(null, List.of(hotelId, railId));
+        ResponseEntity<JsonNode> patchRes = restTemplate.exchange(
+                "/invoices/" + invId,
+                HttpMethod.PATCH,
+                new HttpEntity<>(patchReq, jsonHeaders()),
+                JsonNode.class);
+        assertThat(patchRes.getStatusCode()).isEqualTo(HttpStatus.OK);
+        // Hotel 331.70 + Rail 94.00 = 425.70
+        assertThat(patchRes.getBody().get("totals").get("grand_total").asDouble()).isEqualTo(425.70);
+        assertThat(patchRes.getBody().get("transactions").size()).isEqualTo(2);
+
+        // Failure: invoice not found -> 404
+        assertThat(restTemplate.exchange("/invoices/inv_nonexistent", HttpMethod.PATCH, new HttpEntity<>(patchReq, jsonHeaders()), JsonNode.class).getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+
+        // Failure: transaction in list not found -> 404
+        CreateInvoiceRequest notFoundTxReq = new CreateInvoiceRequest(null, List.of(flightId, "txn_nonexistent"));
+        assertThat(restTemplate.exchange("/invoices/" + invId, HttpMethod.PATCH, new HttpEntity<>(notFoundTxReq, jsonHeaders()), JsonNode.class).getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+
+        // Failure: empty transaction list -> 400
+        CreateInvoiceRequest emptyReq = new CreateInvoiceRequest(null, List.of());
+        assertThat(restTemplate.exchange("/invoices/" + invId, HttpMethod.PATCH, new HttpEntity<>(emptyReq, jsonHeaders()), JsonNode.class).getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+
+        // Failure: duplicate transaction IDs -> 409
+        CreateInvoiceRequest dupReq = new CreateInvoiceRequest(null, List.of(flightId, flightId));
+        assertThat(restTemplate.exchange("/invoices/" + invId, HttpMethod.PATCH, new HttpEntity<>(dupReq, jsonHeaders()), JsonNode.class).getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+
+        // Failure: mixed currency -> 409
+        CreateInvoiceRequest mixedReq = new CreateInvoiceRequest(null, List.of(flightId, usdId));
+        assertThat(restTemplate.exchange("/invoices/" + invId, HttpMethod.PATCH, new HttpEntity<>(mixedReq, jsonHeaders()), JsonNode.class).getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+    }
+
+    @Test
+    @DisplayName("25. DELETE non-existent invoice returns 404")
+    void test25_deleteInvoice_notFound_returns404() {
+        ResponseEntity<Void> res = restTemplate.exchange("/invoices/inv_nonexistent", HttpMethod.DELETE, null, Void.class);
+        assertThat(res.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+    }
+
+    @Test
+    @DisplayName("26. POST /invoices with single transaction_id field succeeds")
+    void test26_postInvoice_withSingleTransactionId() {
+        String flightId = restTemplate.postForEntity("/transactions", new HttpEntity<>(seeds.get("flight"), jsonHeaders()), JsonNode.class).getBody().get("id").asText();
+        CreateInvoiceRequest singleReq = new CreateInvoiceRequest(flightId, null);
+        ResponseEntity<JsonNode> res = restTemplate.postForEntity("/invoices", new HttpEntity<>(singleReq, jsonHeaders()), JsonNode.class);
+        assertThat(res.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        assertThat(res.getBody().get("transactions").size()).isEqualTo(1);
+        assertThat(res.getBody().get("totals").get("grand_total").asDouble()).isEqualTo(220.00);
+    }
 }
