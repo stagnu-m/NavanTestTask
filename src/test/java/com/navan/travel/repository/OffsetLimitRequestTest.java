@@ -60,8 +60,10 @@ public class OffsetLimitRequestTest {
 
         assertThat(firstReq.equals(firstReq)).isTrue();
         assertThat(firstReq.equals(new OffsetLimitRequest(10, 0))).isTrue();
-        assertThat(firstReq.equals(null)).isFalse();
-        assertThat(firstReq.equals("other")).isFalse();
+        Object nullObj = null;
+        Object otherType = "other";
+        assertThat(firstReq.equals(nullObj)).isFalse();
+        assertThat(firstReq.equals(otherType)).isFalse();
         assertThat(firstReq.equals(new OffsetLimitRequest(20, 0))).isFalse();
         assertThat(firstReq.equals(new OffsetLimitRequest(10, 5))).isFalse();
         assertThat(firstReq.equals(new OffsetLimitRequest(10, 0, Sort.by("different")))).isFalse();

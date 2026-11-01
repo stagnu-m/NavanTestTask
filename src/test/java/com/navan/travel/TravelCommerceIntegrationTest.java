@@ -306,7 +306,9 @@ public class TravelCommerceIntegrationTest {
 
         assertThat(createdCount).isEqualTo(1);
         assertThat(conflictCount).isEqualTo(threads - 1);
+        assertThat(createdId).isNotBlank();
         assertThat(transactionRepository.findAll()).hasSize(1);
+        assertThat(transactionRepository.findAll().get(0).getId()).isEqualTo(createdId);
     }
 
     @Test
