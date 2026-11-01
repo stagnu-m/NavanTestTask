@@ -4,7 +4,6 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.navan.travel.dto.*;
-import com.navan.travel.exception.BadRequestException;
 import com.navan.travel.exception.ConflictException;
 import com.navan.travel.exception.NotFoundException;
 import com.navan.travel.model.TransactionType;
@@ -13,7 +12,7 @@ import com.navan.travel.model.entity.InvoiceLineEntity;
 import com.navan.travel.model.entity.TransactionEntity;
 import com.navan.travel.repository.InvoiceRepository;
 import com.navan.travel.repository.TransactionRepository;
-import org.springframework.data.domain.Page;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Slice;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -30,35 +29,31 @@ public class InvoiceService {
     private final TransactionRepository transactionRepository;
     private final TransactionService transactionService;
     private final ObjectMapper objectMapper;
+    private final HelperService helperService;
 
     public InvoiceService(InvoiceRepository invoiceRepository,
                           TransactionRepository transactionRepository,
                           TransactionService transactionService,
                           ObjectMapper objectMapper) {
+        this(invoiceRepository, transactionRepository, transactionService, objectMapper, new HelperService());
+    }
+
+    @Autowired
+    public InvoiceService(InvoiceRepository invoiceRepository,
+                          TransactionRepository transactionRepository,
+                          TransactionService transactionService,
+                          ObjectMapper objectMapper,
+                          HelperService helperService) {
         this.invoiceRepository = invoiceRepository;
         this.transactionRepository = transactionRepository;
         this.transactionService = transactionService;
         this.objectMapper = objectMapper;
+        this.helperService = helperService != null ? helperService : new HelperService();
     }
 
     @Transactional
     public InvoiceResponse createInvoice(CreateInvoiceRequest request) {
-        List<String> txIds = request.resolvedTransactionIds();
-        if (txIds.isEmpty()) {
-            throw new BadRequestException("At least one transaction_id must be provided");
-        }
-
-        // Deduplication / duplicate id check: 409 on duplicate transaction id listed on same invoice
-        Set<String> uniqueIds = new HashSet<>();
-        for (String id : txIds) {
-            if (id == null || id.isBlank()) {
-                throw new BadRequestException("transaction_id cannot be null or blank");
-            }
-            if (!uniqueIds.add(id)) {
-                throw new ConflictException("Duplicate transaction_id listed on invoice: " + id);
-            }
-        }
-
+        List<String> txIds = helperService.validateTransactionIds(request.resolvedTransactionIds());
         List<TransactionEntity> transactions = loadTransactions(txIds);
         validateCurrencies(transactions);
 
@@ -69,13 +64,7 @@ public class InvoiceService {
         invoice.setId(invoiceId);
         invoice.setCurrency(currency);
 
-        BigDecimal grandTotal = BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
-        for (TransactionEntity tx : transactions) {
-            grandTotal = grandTotal.add(tx.getTotal());
-            InvoiceLineEntity line = createSnapshotLine(invoice, tx);
-            invoice.getLines().add(line);
-        }
-        invoice.setGrandTotal(grandTotal.setScale(2, RoundingMode.HALF_UP));
+        populateSnapshotLines(invoice, transactions);
 
         InvoiceEntity saved = invoiceRepository.saveAndFlush(invoice);
         return toInvoiceResponse(saved);
@@ -90,14 +79,8 @@ public class InvoiceService {
 
     @Transactional(readOnly = true)
     public List<InvoiceResponse> listInvoices(int limit, int offset) {
-        if (limit < 1 || limit > 100) {
-            throw new BadRequestException("limit must be between 1 and 100");
-        }
-        if (offset < 0) {
-            throw new BadRequestException("offset cannot be negative");
-        }
-
-        Slice<InvoiceEntity> slice = invoiceRepository.findAllBy(new OffsetLimitRequest(limit, offset));
+        OffsetLimitRequest pageable = helperService.validatePagination(limit, offset);
+        Slice<InvoiceEntity> slice = invoiceRepository.findAllBy(pageable);
         return slice.getContent().stream()
                 .map(this::toInvoiceResponse)
                 .toList();
@@ -108,35 +91,12 @@ public class InvoiceService {
         InvoiceEntity invoice = invoiceRepository.findById(id)
                 .orElseThrow(() -> new NotFoundException("Invoice not found: " + id));
 
-        List<String> txIds = request.resolvedTransactionIds();
-        if (txIds.isEmpty()) {
-            throw new BadRequestException("At least one transaction_id must be provided");
-        }
-
-        Set<String> uniqueIds = new HashSet<>();
-        for (String txId : txIds) {
-            if (txId == null || txId.isBlank()) {
-                throw new BadRequestException("transaction_id cannot be null or blank");
-            }
-            if (!uniqueIds.add(txId)) {
-                throw new ConflictException("Duplicate transaction_id listed on invoice: " + txId);
-            }
-        }
-
+        List<String> txIds = helperService.validateTransactionIds(request.resolvedTransactionIds());
         List<TransactionEntity> currentTransactions = loadTransactions(txIds);
         validateCurrencies(currentTransactions);
 
-        String currency = currentTransactions.get(0).getCurrency();
-        invoice.setCurrency(currency);
-
-        invoice.getLines().clear();
-        BigDecimal grandTotal = BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
-        for (TransactionEntity tx : currentTransactions) {
-            grandTotal = grandTotal.add(tx.getTotal());
-            InvoiceLineEntity line = createSnapshotLine(invoice, tx);
-            invoice.getLines().add(line);
-        }
-        invoice.setGrandTotal(grandTotal.setScale(2, RoundingMode.HALF_UP));
+        invoice.setCurrency(currentTransactions.get(0).getCurrency());
+        populateSnapshotLines(invoice, currentTransactions);
         invoice.setUpdatedAt(Instant.now());
 
         InvoiceEntity saved = invoiceRepository.saveAndFlush(invoice);
@@ -150,6 +110,17 @@ public class InvoiceService {
 
         // Delete invoice and snapshot lines (transactions are left intact)
         invoiceRepository.delete(invoice);
+    }
+
+    private void populateSnapshotLines(InvoiceEntity invoice, List<TransactionEntity> transactions) {
+        invoice.getLines().clear();
+        BigDecimal grandTotal = BigDecimal.ZERO;
+        for (TransactionEntity tx : transactions) {
+            grandTotal = grandTotal.add(tx.getTotal());
+            InvoiceLineEntity line = createSnapshotLine(invoice, tx);
+            invoice.getLines().add(line);
+        }
+        invoice.setGrandTotal(helperService.scaleMoney(grandTotal));
     }
 
     private List<TransactionEntity> loadTransactions(List<String> ids) {
@@ -187,7 +158,7 @@ public class InvoiceService {
         line.setExternalId(tx.getExternalId());
         line.setTransactionType(tx.getType().getValue());
         line.setOccurredAt(tx.getOccurredAt().toString());
-        line.setTotal(tx.getTotal().setScale(2, RoundingMode.HALF_UP));
+        line.setTotal(helperService.scaleMoney(tx.getTotal()));
 
         TransactionResponse txResponse = transactionService.toResponse(tx);
 
@@ -208,7 +179,7 @@ public class InvoiceService {
         Map<TaxGroupKey, BigDecimal> taxRollupMap = new LinkedHashMap<>();
         Map<String, BigDecimal> feeRollupMap = new LinkedHashMap<>();
 
-        BigDecimal grandTotal = BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
+        BigDecimal grandTotal = BigDecimal.ZERO;
 
         for (InvoiceLineEntity line : invoice.getLines()) {
             grandTotal = grandTotal.add(line.getTotal());
@@ -226,17 +197,17 @@ public class InvoiceService {
 
             // Category breakdown for totals
             String category = determineCategory(line.getTransactionType(), metadata);
-            totals.put(category, totals.getOrDefault(category, BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP)).add(line.getTotal()));
+            totals.put(category, totals.getOrDefault(category, BigDecimal.ZERO).add(line.getTotal()));
 
             // Tax rollup aggregation
             for (TaxLineDto tax : taxLines) {
                 TaxGroupKey key = new TaxGroupKey(tax.name(), tax.rate());
-                taxRollupMap.put(key, taxRollupMap.getOrDefault(key, BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP)).add(tax.amount()));
+                taxRollupMap.put(key, taxRollupMap.getOrDefault(key, BigDecimal.ZERO).add(tax.amount()));
             }
 
             // Fee rollup aggregation
             for (FeeLineDto fee : feeLines) {
-                feeRollupMap.put(fee.name(), feeRollupMap.getOrDefault(fee.name(), BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP)).add(fee.amount()));
+                feeRollupMap.put(fee.name(), feeRollupMap.getOrDefault(fee.name(), BigDecimal.ZERO).add(fee.amount()));
             }
 
             txSnapshots.add(new TransactionResponse(
@@ -252,14 +223,14 @@ public class InvoiceService {
             ));
         }
 
-        totals.put("grand_total", grandTotal.setScale(2, RoundingMode.HALF_UP));
+        totals.put("grand_total", helperService.scaleMoney(grandTotal));
 
         List<TaxRollupDto> taxRollup = taxRollupMap.entrySet().stream()
-                .map(entry -> new TaxRollupDto(entry.getKey().name(), entry.getKey().rate(), entry.getValue().setScale(2, RoundingMode.HALF_UP)))
+                .map(entry -> new TaxRollupDto(entry.getKey().name(), entry.getKey().rate(), helperService.scaleMoney(entry.getValue())))
                 .toList();
 
         List<FeeRollupDto> feeRollup = feeRollupMap.entrySet().stream()
-                .map(entry -> new FeeRollupDto(entry.getKey(), entry.getValue().setScale(2, RoundingMode.HALF_UP)))
+                .map(entry -> new FeeRollupDto(entry.getKey(), helperService.scaleMoney(entry.getValue())))
                 .toList();
 
         return new InvoiceResponse(

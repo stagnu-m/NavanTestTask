@@ -17,7 +17,6 @@ import jakarta.validation.Validator;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.ConcurrencyFailureException;
 import org.springframework.dao.DataIntegrityViolationException;
-import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Slice;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -25,9 +24,6 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.math.BigDecimal;
-import java.math.RoundingMode;
-import java.time.Instant;
-import java.time.format.DateTimeParseException;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -41,13 +37,23 @@ public class TransactionService {
     private final ObjectMapper objectMapper;
     private final TransactionTemplate transactionTemplate;
     private final Validator validator;
+    private final HelperService helperService;
 
     public TransactionService(TransactionRepository transactionRepository,
                               InvoiceLineRepository invoiceLineRepository,
                               ObjectMapper objectMapper,
                               PlatformTransactionManager transactionManager) {
         this(transactionRepository, invoiceLineRepository, objectMapper, transactionManager,
-                Validation.buildDefaultValidatorFactory().getValidator());
+                Validation.buildDefaultValidatorFactory().getValidator(), new HelperService());
+    }
+
+    public TransactionService(TransactionRepository transactionRepository,
+                              InvoiceLineRepository invoiceLineRepository,
+                              ObjectMapper objectMapper,
+                              PlatformTransactionManager transactionManager,
+                              Validator validator) {
+        this(transactionRepository, invoiceLineRepository, objectMapper, transactionManager,
+                validator, new HelperService());
     }
 
     @Autowired
@@ -55,12 +61,14 @@ public class TransactionService {
                               InvoiceLineRepository invoiceLineRepository,
                               ObjectMapper objectMapper,
                               PlatformTransactionManager transactionManager,
-                              Validator validator) {
+                              Validator validator,
+                              HelperService helperService) {
         this.transactionRepository = transactionRepository;
         this.invoiceLineRepository = invoiceLineRepository;
         this.objectMapper = objectMapper;
         this.transactionTemplate = new TransactionTemplate(transactionManager);
         this.validator = validator != null ? validator : Validation.buildDefaultValidatorFactory().getValidator();
+        this.helperService = helperService != null ? helperService : new HelperService();
     }
 
     public TransactionResponse createTransaction(TransactionRequest request) {
@@ -68,8 +76,8 @@ public class TransactionService {
             throw new BadRequestException("Unknown transaction type: " + (request.type() != null ? request.type().getValue() : "null"));
         }
 
-        Currency currency = validateCurrency(request.currency());
-        BigDecimal scaledTotal = validateMoney(request.total(), "total", currency);
+        Currency currency = helperService.validateCurrency(request.currency());
+        BigDecimal scaledTotal = helperService.validateMoney(request.total(), "total", currency);
 
         // Fast-path: check if external_id already exists before starting transaction
         Optional<TransactionEntity> existingOpt = transactionRepository.findByExternalId(request.externalId());
@@ -92,7 +100,7 @@ public class TransactionService {
                 entity.setType(request.type());
                 entity.setExternalId(request.externalId());
                 entity.setCurrency(currency.getCurrencyCode());
-                entity.setOccurredAt(parseInstant(request.occurredAt()));
+                entity.setOccurredAt(helperService.parseInstant(request.occurredAt()));
                 entity.setTotal(scaledTotal);
 
                 populateTaxLines(entity, request.taxLines(), currency);
@@ -129,13 +137,8 @@ public class TransactionService {
 
     @Transactional(readOnly = true)
     public List<TransactionResponse> listTransactions(int limit, int offset) {
-        if (limit < 1 || limit > 100) {
-            throw new BadRequestException("limit must be between 1 and 100");
-        }
-        if (offset < 0) {
-            throw new BadRequestException("offset cannot be negative");
-        }
-        Slice<TransactionEntity> slice = transactionRepository.findAllBy(new OffsetLimitRequest(limit, offset));
+        OffsetLimitRequest pageable = helperService.validatePagination(limit, offset);
+        Slice<TransactionEntity> slice = transactionRepository.findAllBy(pageable);
         return slice.getContent().stream()
                 .map(this::toResponse)
                 .toList();
@@ -171,10 +174,10 @@ public class TransactionService {
         Currency currency = Currency.getInstance(entity.getCurrency());
 
         if (request.occurredAt() != null) {
-            entity.setOccurredAt(parseInstant(request.occurredAt()));
+            entity.setOccurredAt(helperService.parseInstant(request.occurredAt()));
         }
         if (request.total() != null) {
-            entity.setTotal(validateMoney(request.total(), "total", currency));
+            entity.setTotal(helperService.validateMoney(request.total(), "total", currency));
         }
 
         if (request.taxLines() != null) {
@@ -226,7 +229,7 @@ public class TransactionService {
                     if (dto.coupons() == null || dto.coupons().isEmpty()) {
                         throw new BadRequestException("Invalid flight metadata: coupons are required");
                     }
-                    validateMoney(dto.fare(), "flight fare", currency);
+                    helperService.validateMoney(dto.fare(), "flight fare", currency);
                     for (FlightCouponDto coupon : dto.coupons()) {
                         if (coupon == null) {
                             throw new BadRequestException("Flight coupon cannot be null");
@@ -244,7 +247,7 @@ public class TransactionService {
                     if (dto.nights() == null || dto.nights() <= 0) {
                         throw new BadRequestException("Hotel nights must be greater than zero");
                     }
-                    validateMoney(dto.roomRatePerNight(), "hotel room_rate_per_night", currency);
+                    helperService.validateMoney(dto.roomRatePerNight(), "hotel room_rate_per_night", currency);
                     if (dto.extras() != null) {
                         for (HotelExtraDto extra : dto.extras()) {
                             if (extra == null) {
@@ -256,7 +259,7 @@ public class TransactionService {
                             if (extra.amount() == null) {
                                 throw new BadRequestException("Hotel extra amount cannot be null");
                             }
-                            validateMoney(extra.amount(), "hotel extra amount", currency);
+                            helperService.validateMoney(extra.amount(), "hotel extra amount", currency);
                         }
                     }
                 }
@@ -298,32 +301,6 @@ public class TransactionService {
         }
     }
 
-    private Currency validateCurrency(String currency) {
-        if (currency == null || currency.isBlank()) {
-            throw new BadRequestException("currency cannot be blank");
-        }
-        try {
-            return Currency.getInstance(currency.toUpperCase(Locale.ROOT));
-        } catch (IllegalArgumentException e) {
-            throw new BadRequestException("Invalid ISO-4217 currency code: " + currency);
-        }
-    }
-
-    private BigDecimal validateMoney(BigDecimal amount, String fieldName, Currency currency) {
-        if (amount == null) {
-            throw new BadRequestException(fieldName + " cannot be null");
-        }
-        if (amount.compareTo(BigDecimal.ZERO) < 0) {
-            throw new BadRequestException(fieldName + " cannot be negative");
-        }
-        int maxScale = Math.max(0, currency.getDefaultFractionDigits());
-        int effectiveScale = amount.compareTo(BigDecimal.ZERO) == 0 ? 0 : amount.stripTrailingZeros().scale();
-        if (effectiveScale > maxScale) {
-            throw new BadRequestException(fieldName + " scale exceeds maximum " + maxScale + " decimal places for currency " + currency.getCurrencyCode());
-        }
-        return amount.setScale(maxScale, RoundingMode.HALF_UP);
-    }
-
     private void populateTaxLines(TransactionEntity entity, List<TaxLineDto> taxLines, Currency currency) {
         entity.getTaxLines().clear();
         if (taxLines != null) {
@@ -337,7 +314,7 @@ public class TransactionService {
                 if (taxDto.amount() == null) {
                     throw new BadRequestException("Tax amount cannot be null");
                 }
-                BigDecimal amount = validateMoney(taxDto.amount(), "Tax amount", currency);
+                BigDecimal amount = helperService.validateMoney(taxDto.amount(), "Tax amount", currency);
                 TransactionTaxLineEntity taxEntity = new TransactionTaxLineEntity();
                 taxEntity.setTransaction(entity);
                 taxEntity.setName(taxDto.name());
@@ -361,7 +338,7 @@ public class TransactionService {
                 if (feeDto.amount() == null) {
                     throw new BadRequestException("Fee amount cannot be null");
                 }
-                BigDecimal amount = validateMoney(feeDto.amount(), "Fee amount", currency);
+                BigDecimal amount = helperService.validateMoney(feeDto.amount(), "Fee amount", currency);
                 TransactionFeeLineEntity feeEntity = new TransactionFeeLineEntity();
                 feeEntity.setTransaction(entity);
                 feeEntity.setName(feeDto.name());
@@ -384,7 +361,7 @@ public class TransactionService {
                     }
                     flightEntity.setOrigin(dto.origin());
                     flightEntity.setDestination(dto.destination());
-                    flightEntity.setFare(validateMoney(dto.fare(), "flight fare", currency));
+                    flightEntity.setFare(helperService.validateMoney(dto.fare(), "flight fare", currency));
 
                     flightEntity.getCoupons().clear();
                     int order = 0;
@@ -416,7 +393,7 @@ public class TransactionService {
                     hotelEntity.setCheckIn(dto.checkIn());
                     hotelEntity.setCheckOut(dto.checkOut());
                     hotelEntity.setNights(dto.nights());
-                    hotelEntity.setRoomRatePerNight(validateMoney(dto.roomRatePerNight(), "hotel room_rate_per_night", currency));
+                    hotelEntity.setRoomRatePerNight(helperService.validateMoney(dto.roomRatePerNight(), "hotel room_rate_per_night", currency));
 
                     hotelEntity.getExtras().clear();
                     if (dto.extras() != null) {
@@ -424,7 +401,7 @@ public class TransactionService {
                             HotelExtraEntity extraEntity = new HotelExtraEntity();
                             extraEntity.setHotelMetadata(hotelEntity);
                             extraEntity.setName(extraDto.name());
-                            extraEntity.setAmount(validateMoney(extraDto.amount(), "hotel extra amount", currency));
+                            extraEntity.setAmount(helperService.validateMoney(extraDto.amount(), "hotel extra amount", currency));
                             hotelEntity.getExtras().add(extraEntity);
                         }
                     }
@@ -471,14 +448,6 @@ public class TransactionService {
         }
     }
 
-    private Instant parseInstant(String text) {
-        try {
-            return Instant.parse(text);
-        } catch (DateTimeParseException e) {
-            throw new BadRequestException("Invalid ISO-8601 date-time format: " + text);
-        }
-    }
-
     public TransactionResponse toResponse(TransactionEntity entity) {
         List<TaxLineDto> taxDtos = entity.getTaxLines().stream()
                 .map(t -> new TaxLineDto(t.getName(), t.getRate(), t.getAmount()))
@@ -509,7 +478,7 @@ public class TransactionService {
                 FlightMetadataEntity flight = entity.getFlightMetadata();
                 if (flight == null) yield Collections.emptyMap();
                 List<FlightCouponDto> coupons = flight.getCoupons().stream()
-                        .map(c -> new FlightCouponDto(
+                .map(c -> new FlightCouponDto(
                                 c.getCarrier(),
                                 c.getFlightNumber(),
                                 c.getFromLocation(),

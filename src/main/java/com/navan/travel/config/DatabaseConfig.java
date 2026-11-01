@@ -2,8 +2,8 @@ package com.navan.travel.config;
 
 import com.zaxxer.hikari.HikariDataSource;
 import jakarta.annotation.PostConstruct;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.jdbc.DataSourceProperties;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Primary;
@@ -14,15 +14,20 @@ import java.sql.Connection;
 import java.sql.Statement;
 
 @Configuration
+@EnableConfigurationProperties(DatabaseProperties.class)
 public class DatabaseConfig {
 
-    @Value("${spring.datasource.url:jdbc:sqlite:data/travel_invoice.db}")
-    private String dbUrl;
+    private final DatabaseProperties databaseProperties;
+
+    public DatabaseConfig(DatabaseProperties databaseProperties) {
+        this.databaseProperties = databaseProperties;
+    }
 
     @PostConstruct
     public void initDirectory() {
+        String dbUrl = databaseProperties.getUrl();
         // Ensure data directory exists if local file is used
-        if (dbUrl.startsWith("jdbc:sqlite:")) {
+        if (dbUrl != null && dbUrl.startsWith("jdbc:sqlite:")) {
             String path = dbUrl.substring("jdbc:sqlite:".length());
             int queryIdx = path.indexOf('?');
             if (queryIdx != -1) {
