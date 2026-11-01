@@ -12,10 +12,13 @@ import com.navan.travel.model.entity.*;
 import com.navan.travel.repository.InvoiceLineRepository;
 import com.navan.travel.repository.OffsetLimitRequest;
 import com.navan.travel.repository.TransactionRepository;
+import org.springframework.dao.ConcurrencyFailureException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -27,54 +30,67 @@ import java.util.*;
 public class TransactionService {
 
     private static final Set<String> ALLOWED_FEE_KINDS = Set.of("trip_fee", "agent_call_fee");
+    private static final Object WRITE_LOCK = new Object();
 
     private final TransactionRepository transactionRepository;
     private final InvoiceLineRepository invoiceLineRepository;
     private final ObjectMapper objectMapper;
+    private final TransactionTemplate transactionTemplate;
 
     public TransactionService(TransactionRepository transactionRepository,
                               InvoiceLineRepository invoiceLineRepository,
-                              ObjectMapper objectMapper) {
+                              ObjectMapper objectMapper,
+                              PlatformTransactionManager transactionManager) {
         this.transactionRepository = transactionRepository;
         this.invoiceLineRepository = invoiceLineRepository;
         this.objectMapper = objectMapper;
+        this.transactionTemplate = new TransactionTemplate(transactionManager);
     }
 
-    @Transactional
-    public synchronized TransactionResponse createTransaction(TransactionRequest request) {
+    public TransactionResponse createTransaction(TransactionRequest request) {
         if (request.type() == null || request.type() == TransactionType.UNSUPPORTED) {
             throw new BadRequestException("Unknown transaction type: " + (request.type() != null ? request.type().getValue() : "null"));
         }
 
-        // Check if external_id already exists
-        Optional<TransactionEntity> existingOpt = transactionRepository.findByExternalId(request.externalId());
-        if (existingOpt.isPresent()) {
-            throw new ConflictException("Transaction with external_id already exists", existingOpt.get().getId());
-        }
-
-        validateMetadataNode(request.type(), request.metadata());
-
-        String id = "txn_" + UUID.randomUUID().toString().replace("-", "");
-        TransactionEntity entity = new TransactionEntity();
-        entity.setId(id);
-        entity.setType(request.type());
-        entity.setExternalId(request.externalId());
-        entity.setCurrency(request.currency().toUpperCase());
-        entity.setOccurredAt(parseInstant(request.occurredAt()));
-        entity.setTotal(request.total().setScale(2, RoundingMode.HALF_UP));
-
-        populateTaxAndFeeLines(entity, request.taxLines(), request.feeLines());
-        populateMetadataEntity(entity, request.type(), request.metadata());
-
-        try {
-            TransactionEntity saved = transactionRepository.saveAndFlush(entity);
-            return toResponse(saved);
-        } catch (DataIntegrityViolationException ex) {
-            Optional<TransactionEntity> raceExisting = transactionRepository.findByExternalId(request.externalId());
-            if (raceExisting.isPresent()) {
-                throw new ConflictException("Transaction with external_id already exists", raceExisting.get().getId());
+        synchronized (WRITE_LOCK) {
+            // Check if external_id already exists before starting transaction
+            Optional<TransactionEntity> existingOpt = transactionRepository.findByExternalId(request.externalId());
+            if (existingOpt.isPresent()) {
+                throw new ConflictException("Transaction with external_id already exists", existingOpt.get().getId());
             }
-            throw ex;
+
+            validateMetadataNode(request.type(), request.metadata());
+
+            try {
+                return transactionTemplate.execute(status -> {
+                    // Double check inside transaction boundary
+                    Optional<TransactionEntity> inTxOpt = transactionRepository.findByExternalId(request.externalId());
+                    if (inTxOpt.isPresent()) {
+                        throw new ConflictException("Transaction with external_id already exists", inTxOpt.get().getId());
+                    }
+
+                    String id = "txn_" + UUID.randomUUID().toString().replace("-", "");
+                    TransactionEntity entity = new TransactionEntity();
+                    entity.setId(id);
+                    entity.setType(request.type());
+                    entity.setExternalId(request.externalId());
+                    entity.setCurrency(request.currency().toUpperCase());
+                    entity.setOccurredAt(parseInstant(request.occurredAt()));
+                    entity.setTotal(request.total().setScale(2, RoundingMode.HALF_UP));
+
+                    populateTaxAndFeeLines(entity, request.taxLines(), request.feeLines());
+                    populateMetadataEntity(entity, request.type(), request.metadata());
+
+                    TransactionEntity saved = transactionRepository.saveAndFlush(entity);
+                    return toResponse(saved);
+                });
+            } catch (DataIntegrityViolationException | ConcurrencyFailureException ex) {
+                Optional<TransactionEntity> raceExisting = transactionRepository.findByExternalId(request.externalId());
+                if (raceExisting.isPresent()) {
+                    throw new ConflictException("Transaction with external_id already exists", raceExisting.get().getId());
+                }
+                throw ex;
+            }
         }
     }
 
