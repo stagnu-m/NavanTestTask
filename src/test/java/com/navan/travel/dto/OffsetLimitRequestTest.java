@@ -1,4 +1,4 @@
-package com.navan.travel.repository;
+package com.navan.travel.dto;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.data.domain.Pageable;

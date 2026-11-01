@@ -1,4 +1,4 @@
-package com.navan.travel.repository;
+package com.navan.travel.dto;
 
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;

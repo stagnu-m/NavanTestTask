@@ -10,7 +10,6 @@ import com.navan.travel.exception.NotFoundException;
 import com.navan.travel.model.TransactionType;
 import com.navan.travel.model.entity.*;
 import com.navan.travel.repository.InvoiceLineRepository;
-import com.navan.travel.repository.OffsetLimitRequest;
 import com.navan.travel.repository.TransactionRepository;
 import jakarta.validation.ConstraintViolation;
 import jakarta.validation.Validation;

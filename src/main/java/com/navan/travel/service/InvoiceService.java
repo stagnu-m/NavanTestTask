@@ -12,7 +12,6 @@ import com.navan.travel.model.entity.InvoiceEntity;
 import com.navan.travel.model.entity.InvoiceLineEntity;
 import com.navan.travel.model.entity.TransactionEntity;
 import com.navan.travel.repository.InvoiceRepository;
-import com.navan.travel.repository.OffsetLimitRequest;
 import com.navan.travel.repository.TransactionRepository;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Slice;
