@@ -11,6 +11,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.mock.http.MockHttpInputMessage;
 import org.springframework.validation.BeanPropertyBindingResult;
 import org.springframework.validation.FieldError;
 import org.springframework.web.ErrorResponseException;
@@ -93,7 +94,7 @@ public class GlobalExceptionHandlerUnitTest {
     @Test
     void testHandleHttpMessageNotReadable() {
         ResponseEntity<ErrorDto> response = handler.handleHttpMessageNotReadable(
-                new HttpMessageNotReadableException("Invalid JSON"));
+                new HttpMessageNotReadableException("Invalid JSON", new MockHttpInputMessage("Invalid JSON".getBytes())));
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
         assertThat(response.getBody()).isNotNull();
         assertThat(response.getBody().error()).isEqualTo("Malformed or missing request body");

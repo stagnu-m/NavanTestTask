@@ -6,7 +6,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.navan.travel.dto.*;
 import com.navan.travel.exception.BadRequestException;
 import com.navan.travel.exception.ConflictException;
-import com.navan.travel.exception.NotFoundException;
 import com.navan.travel.exception.TransactionNotFoundException;
 import com.navan.travel.model.TransactionType;
 import com.navan.travel.model.entity.*;
@@ -297,7 +296,7 @@ public class TransactionService {
     private void validateWithValidator(Object target, String context) {
         Set<ConstraintViolation<Object>> violations = validator.validate(target);
         if (!violations.isEmpty()) {
-            String msg = violations.stream().map(ConstraintViolation::getMessage).collect(Collectors.joining("; "));
+            String msg = violations.stream().map(v -> v.getMessage()).collect(Collectors.joining("; "));
             throw new BadRequestException("Invalid " + context + " metadata: " + msg);
         }
     }
@@ -443,6 +442,7 @@ public class TransactionService {
                     feeEntity.setDescription(dto.description());
                     feeEntity.setRelatedExternalId(dto.relatedExternalId());
                 }
+                case UNSUPPORTED -> throw new BadRequestException("Unknown transaction type: " + type.getValue());
             }
         } catch (JsonProcessingException e) {
             throw new BadRequestException("Malformed metadata JSON: " + e.getMessage());

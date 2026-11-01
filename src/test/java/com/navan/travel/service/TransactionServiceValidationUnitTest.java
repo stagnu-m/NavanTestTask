@@ -17,11 +17,13 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.transaction.PlatformTransactionManager;
 
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.Collections;
+import java.util.Currency;
 import java.util.List;
 import java.util.Optional;
 
@@ -477,5 +479,13 @@ public class TransactionServiceValidationUnitTest {
         assertThatThrownBy(() -> service.updateTransaction("txn_test", reqBadFee))
                 .isInstanceOf(BadRequestException.class)
                 .hasMessageContaining("Fee name cannot be blank");
+    }
+
+    @Test
+    void testPopulateMetadataEntity_UnsupportedType() {
+        TransactionEntity entity = new TransactionEntity();
+        assertThatThrownBy(() -> ReflectionTestUtils.invokeMethod(
+                service, "populateMetadataEntity", entity, TransactionType.UNSUPPORTED, objectMapper.createObjectNode(), Currency.getInstance("EUR")))
+                .isInstanceOf(BadRequestException.class);
     }
 }
