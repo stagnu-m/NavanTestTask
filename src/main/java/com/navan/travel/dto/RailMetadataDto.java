@@ -10,6 +10,5 @@ import java.util.List;
 public record RailMetadataDto(
         @NotNull(message = "Rail legs are required")
         @NotEmpty(message = "Rail legs cannot be empty")
-        @Valid
-        List<RailLegDto> legs
+        List<@Valid RailLegDto> legs
 ) {}

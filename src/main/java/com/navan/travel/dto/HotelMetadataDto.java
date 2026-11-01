@@ -32,6 +32,5 @@ public record HotelMetadataDto(
         @JsonProperty("room_rate_per_night")
         BigDecimal roomRatePerNight,
 
-        @Valid
-        List<HotelExtraDto> extras
+        List<@Valid HotelExtraDto> extras
 ) {}

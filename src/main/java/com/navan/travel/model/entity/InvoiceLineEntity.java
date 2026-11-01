@@ -21,6 +21,16 @@ public class InvoiceLineEntity {
     @Column(name = "transaction_id", nullable = false, length = 64)
     private String transactionId;
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(
+            name = "transaction_id",
+            referencedColumnName = "id",
+            insertable = false,
+            updatable = false,
+            foreignKey = @ForeignKey(name = "fk_inv_line_transaction", value = ConstraintMode.CONSTRAINT)
+    )
+    private TransactionEntity transaction;
+
     @Column(name = "external_id", nullable = false, length = 128)
     private String externalId;
 
@@ -69,6 +79,14 @@ public class InvoiceLineEntity {
 
     public void setTransactionId(String transactionId) {
         this.transactionId = transactionId;
+    }
+
+    public TransactionEntity getTransaction() {
+        return transaction;
+    }
+
+    public void setTransaction(TransactionEntity transaction) {
+        this.transaction = transaction;
     }
 
     public String getExternalId() {

@@ -1,0 +1,141 @@
+### 1. Health Check
+GET http://localhost:8080/health
+Accept: application/json
+
+### 2. Create Flight Transaction
+POST http://localhost:8080/transactions
+Content-Type: application/json
+
+{
+  "type": "flight",
+  "external_id": "flight-demo-001",
+  "currency": "EUR",
+  "occurred_at": "2026-03-11T06:40:00Z",
+  "total": 220.00,
+  "tax_lines": [
+    { "name": "Airport tax", "amount": 15.00 }
+  ],
+  "fee_lines": [
+    { "name": "YQ", "amount": 25.00 }
+  ],
+  "metadata": {
+    "origin": "TXL",
+    "destination": "LHR",
+    "fare": 180.00,
+    "coupons": [
+      {
+        "carrier": "BA",
+        "flight_number": "BA982",
+        "from": "TXL",
+        "to": "LHR",
+        "departure": "2026-03-11T07:00:00Z",
+        "arrival": "2026-03-11T08:20:00Z"
+      }
+    ]
+  }
+}
+
+### 3. Duplicate External ID (Returns 409 Conflict with existing ID)
+POST http://localhost:8080/transactions
+Content-Type: application/json
+
+{
+  "type": "flight",
+  "external_id": "flight-demo-001",
+  "currency": "EUR",
+  "occurred_at": "2026-03-11T06:40:00Z",
+  "total": 220.00,
+  "tax_lines": [],
+  "fee_lines": [],
+  "metadata": {
+    "origin": "TXL",
+    "destination": "LHR",
+    "fare": 220.00,
+    "coupons": [
+      {
+        "carrier": "BA",
+        "flight_number": "BA982",
+        "from": "TXL",
+        "to": "LHR",
+        "departure": "2026-03-11T07:00:00Z",
+        "arrival": "2026-03-11T08:20:00Z"
+      }
+    ]
+  }
+}
+
+### 4. List Transactions (Default Pagination: limit=50, offset=0)
+GET http://localhost:8080/transactions?limit=10&offset=0
+Accept: application/json
+
+### 5. Create Hotel Transaction
+POST http://localhost:8080/transactions
+Content-Type: application/json
+
+{
+  "type": "hotel",
+  "external_id": "hotel-demo-001",
+  "currency": "EUR",
+  "occurred_at": "2026-03-11T15:00:00Z",
+  "total": 331.70,
+  "tax_lines": [
+    { "name": "VAT", "rate": 0.07, "amount": 21.70 }
+  ],
+  "fee_lines": [],
+  "metadata": {
+    "name": "Hotel Mitte London",
+    "address": {
+      "street": "12 Kingsway",
+      "city": "London",
+      "country": "GB"
+    },
+    "check_in": "2026-03-11",
+    "check_out": "2026-03-13",
+    "nights": 2,
+    "room_rate_per_night": 140.00,
+    "extras": [
+      { "name": "Breakfast", "amount": 30.00 }
+    ]
+  }
+}
+
+### 6. Create Trip Fee Transaction
+POST http://localhost:8080/transactions
+Content-Type: application/json
+
+{
+  "type": "navan_fee",
+  "external_id": "fee-demo-001",
+  "currency": "EUR",
+  "occurred_at": "2026-03-11T06:40:00Z",
+  "total": 25.00,
+  "tax_lines": [],
+  "fee_lines": [],
+  "metadata": {
+    "fee_kind": "trip_fee",
+    "description": "Trip booking fee",
+    "related_external_id": "flight-demo-001"
+  }
+}
+
+### 7. Create Invoice from Transactions
+# Replace transaction IDs below with IDs returned in steps above
+POST http://localhost:8080/invoices
+Content-Type: application/json
+
+{
+  "transaction_ids": [
+    "YOUR_FLIGHT_ID_HERE"
+  ]
+}
+
+### 8. Attempt Mutation of Invoiced Transaction (Returns 409 Conflict)
+PATCH http://localhost:8080/transactions/YOUR_FLIGHT_ID_HERE
+Content-Type: application/json
+
+{
+  "total": 999.00
+}
+
+### 9. Attempt Deletion of Invoiced Transaction (Returns 409 Conflict)
+DELETE http://localhost:8080/transactions/YOUR_FLIGHT_ID_HERE

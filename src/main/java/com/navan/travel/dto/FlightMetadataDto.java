@@ -19,6 +19,5 @@ public record FlightMetadataDto(
         BigDecimal fare,
 
         @NotNull(message = "Flight coupons list is required")
-        @Valid
-        List<FlightCouponDto> coupons
+        List<@Valid FlightCouponDto> coupons
 ) {}

@@ -147,10 +147,17 @@ public class InvoiceService {
     }
 
     private List<TransactionEntity> loadTransactions(List<String> ids) {
+        List<TransactionEntity> found = transactionRepository.findAllById(ids);
+        Map<String, TransactionEntity> byId = new HashMap<>();
+        for (TransactionEntity tx : found) {
+            byId.put(tx.getId(), tx);
+        }
         List<TransactionEntity> result = new ArrayList<>();
         for (String id : ids) {
-            TransactionEntity tx = transactionRepository.findById(id)
-                    .orElseThrow(() -> new NotFoundException("Transaction not found: " + id));
+            TransactionEntity tx = byId.get(id);
+            if (tx == null) {
+                throw new NotFoundException("Transaction not found: " + id);
+            }
             result.add(tx);
         }
         return result;

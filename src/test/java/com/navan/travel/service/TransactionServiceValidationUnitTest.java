@@ -391,5 +391,91 @@ public class TransactionServiceValidationUnitTest {
                 TransactionType.NAVAN_FEE, null, null, null, null, null, null, feeMeta);
         service.updateTransaction("txn_test", req7);
         assertThat(existing.getNavanFeeMetadata()).isNotNull();
+
+        // 8. Reject mutating immutable fields in updateTransaction
+        existing.setType(TransactionType.FLIGHT);
+        TransactionRequest reqTypeChange = new TransactionRequest(
+                TransactionType.HOTEL, null, null, null, null, null, null, null);
+        assertThatThrownBy(() -> service.updateTransaction("txn_test", reqTypeChange))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessageContaining("Changing transaction type is not supported");
+
+        TransactionRequest reqExtIdChange = new TransactionRequest(
+                null, "different_ext_id", null, null, null, null, null, null);
+        assertThatThrownBy(() -> service.updateTransaction("txn_test", reqExtIdChange))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessageContaining("Changing external_id is not supported");
+
+        TransactionRequest reqCurrChange = new TransactionRequest(
+                null, null, "USD", null, null, null, null, null);
+        assertThatThrownBy(() -> service.updateTransaction("txn_test", reqCurrChange))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessageContaining("Changing currency is not supported");
+
+        // 9. Update occurredAt and total in updateTransaction
+        TransactionRequest reqFields = new TransactionRequest(
+                null, null, null, "2026-03-12T10:00:00Z", new BigDecimal("350.00"), null, null, null);
+        service.updateTransaction("txn_test", reqFields);
+        assertThat(existing.getTotal()).isEqualByComparingTo("350.00");
+        assertThat(existing.getOccurredAt()).isEqualTo(Instant.parse("2026-03-12T10:00:00Z"));
+    }
+
+    @Test
+    void testValidateCurrencyAndMoneyBranches() {
+        // Currency validation
+        TransactionRequest reqBlankCurrency = new TransactionRequest(
+                TransactionType.FLIGHT, "ext_cur", "   ", "2026-03-11T10:00:00Z",
+                new BigDecimal("100.00"), null, null, objectMapper.createObjectNode());
+        assertThatThrownBy(() -> service.createTransaction(reqBlankCurrency))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessageContaining("currency cannot be blank");
+
+        TransactionRequest reqInvalidCurrency = new TransactionRequest(
+                TransactionType.FLIGHT, "ext_cur2", "INVALID", "2026-03-11T10:00:00Z",
+                new BigDecimal("100.00"), null, null, objectMapper.createObjectNode());
+        assertThatThrownBy(() -> service.createTransaction(reqInvalidCurrency))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessageContaining("Invalid ISO-4217 currency code");
+
+        // Money validation: null, negative, excess scale
+        TransactionRequest reqNullTotal = new TransactionRequest(
+                TransactionType.FLIGHT, "ext_tot1", "EUR", "2026-03-11T10:00:00Z",
+                null, null, null, objectMapper.createObjectNode());
+        assertThatThrownBy(() -> service.createTransaction(reqNullTotal))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessageContaining("total cannot be null");
+
+        TransactionRequest reqNegativeTotal = new TransactionRequest(
+                TransactionType.FLIGHT, "ext_tot2", "EUR", "2026-03-11T10:00:00Z",
+                new BigDecimal("-5.00"), null, null, objectMapper.createObjectNode());
+        assertThatThrownBy(() -> service.createTransaction(reqNegativeTotal))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessageContaining("total cannot be negative");
+
+        TransactionRequest reqExcessScale = new TransactionRequest(
+                TransactionType.FLIGHT, "ext_tot3", "EUR", "2026-03-11T10:00:00Z",
+                new BigDecimal("10.005"), null, null, objectMapper.createObjectNode());
+        assertThatThrownBy(() -> service.createTransaction(reqExcessScale))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessageContaining("scale exceeds maximum");
+
+        // Tax line blank name
+        TransactionEntity entity = new TransactionEntity();
+        entity.setCurrency("EUR");
+        List<TaxLineDto> badTax = List.of(new TaxLineDto("   ", null, new BigDecimal("10.00")));
+        TransactionRequest reqBadTax = new TransactionRequest(
+                null, null, null, null, null, badTax, null, null);
+        when(transactionRepository.findById("txn_test")).thenReturn(Optional.of(entity));
+        assertThatThrownBy(() -> service.updateTransaction("txn_test", reqBadTax))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessageContaining("Tax name cannot be blank");
+
+        // Fee line blank name
+        List<FeeLineDto> badFee = List.of(new FeeLineDto("", new BigDecimal("10.00")));
+        TransactionRequest reqBadFee = new TransactionRequest(
+                null, null, null, null, null, null, badFee, null);
+        assertThatThrownBy(() -> service.updateTransaction("txn_test", reqBadFee))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessageContaining("Fee name cannot be blank");
     }
 }

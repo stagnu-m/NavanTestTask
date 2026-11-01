@@ -3,6 +3,7 @@ package com.navan.travel.controller;
 import com.navan.travel.dto.CreateInvoiceRequest;
 import com.navan.travel.dto.InvoiceResponse;
 import com.navan.travel.service.InvoiceService;
+import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -20,7 +21,7 @@ public class InvoiceController {
     }
 
     @PostMapping
-    public ResponseEntity<InvoiceResponse> createInvoice(@RequestBody CreateInvoiceRequest request) {
+    public ResponseEntity<InvoiceResponse> createInvoice(@Valid @RequestBody CreateInvoiceRequest request) {
         InvoiceResponse response = invoiceService.createInvoice(request);
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
@@ -41,7 +42,7 @@ public class InvoiceController {
     @PatchMapping("/{id}")
     public ResponseEntity<InvoiceResponse> updateInvoice(
             @PathVariable String id,
-            @RequestBody CreateInvoiceRequest request) {
+            @Valid @RequestBody CreateInvoiceRequest request) {
         return ResponseEntity.ok(invoiceService.updateInvoice(id, request));
     }
 

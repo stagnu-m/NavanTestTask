@@ -11,38 +11,52 @@ A production-grade microservice built with **Java 21**, **Spring Boot 3.3.5**, a
 - macOS / Linux / Windows
 
 ### 1. Run the API (One Command)
+
+**Via Gradle:**
 ```bash
 ./gradlew bootRun
 ```
 The application will start on `http://localhost:8080` backed by the SQLite database `./data/travel_invoice.db`.
+
+**Via Docker (No local JDK needed):**
+```bash
+docker compose up --build
+```
+
+### Interactive API Documentation (Swagger UI)
+Once running, explore and execute all API requests directly in the browser:
+- **Swagger UI:** [http://localhost:8080/swagger-ui.html](http://localhost:8080/swagger-ui.html)
+- **OpenAPI v3 Spec:** [http://localhost:8080/v3/api-docs](http://localhost:8080/v3/api-docs)
 
 ### 2. Run All Automated Tests & Check Coverage
 ```bash
 ./gradlew test jacocoTestReport
 ```
 Executes the comprehensive automated test suite covering every endpoint, happy path, failure scenario, concurrency race, and freeze rule.
-- **Coverage report:** `build/reports/jacoco/test/html/index.html` (All metrics >= 80%: **89.43% line**, **91.85% instruction**, **95.82% branch**, **87.21% complexity**, **84.77% method**, **100% class**).
+- **Coverage report:** `build/reports/jacoco/test/html/index.html` (All 6 JaCoCo metrics exceed 80%: **96.8% line**, **97.0% instruction**, **87.6% branch**, **90.6% complexity**, **97.8% method**, **100% class**).
 - **Enforce >= 80% rule across all metrics:**
 ```bash
 ./gradlew jacocoTestCoverageVerification
 ```
 
 ### 3. Continuous Integration (GitHub Actions)
-The repository includes a GitHub Actions CI pipeline in [`.github/workflows/ci.yml`](file:///Users/miha/Projects/NavanTestTask/.github/workflows/ci.yml) that triggers automatically on every `push` and `pull_request` to `main`:
+The repository includes a GitHub Actions CI pipeline in [`.github/workflows/ci.yml`](.github/workflows/ci.yml) that triggers automatically on every `push` and `pull_request` to `main`:
 - **Automated Execution:** Runs `./gradlew test jacocoTestReport jacocoTestCoverageVerification` on Ubuntu with Temurin JDK 21.
 - **Coverage Gate:** Build fails automatically if code coverage drops below the 80% threshold.
 - **Step Summary:** Generates an inline Markdown summary in the GitHub Actions run overview with both the unit/integration test results suite breakdown and the 6-metric JaCoCo coverage table.
 - **Artifacts:** Uploads both JaCoCo HTML/XML reports and JUnit test results as downloadable job artifacts (14-day retention).
 
-### 4. Manual Testing via `jsons/` Directory
-The [`jsons/`](file:///Users/miha/Projects/NavanTestTask/jsons) directory contains pre-built, ready-to-use JSON payloads for manually verifying all endpoints and failure scenarios:
-- **Valid Payloads:** `post_transaction_flight.json`, `post_transaction_hotel.json`, `post_transaction_rail.json`, `post_transaction_trip_fee.json`, `post_transaction_agent_call_fee.json`
-- **Updates:** `patch_transaction.json`, `patch_invoice.json`
-- **Invoices:** `post_invoice_single.json`, `post_invoice_trip.json`
-- **Conflict Scenarios (409):** `post_transaction_duplicate.json`, `post_invoice_mixed_currency.json`, `post_invoice_duplicate_id.json`
-- **Validation Failures (400):** `post_transaction_invalid_type.json`, `post_transaction_invalid_fee_kind.json`, `post_transaction_empty_metadata.json`, `post_transaction_flight_as_hotel_blob.json`, `post_invoice_empty.json`
+### 4. Manual Testing via `requests.http` & `jsons/` Directory
+- **VS Code REST Client / IntelliJ HTTP Client:** See [`requests.http`](requests.http) for runnable, click-to-execute requests covering the entire lifecycle: create -> duplicate conflict -> invoice creation -> freeze rule 409 -> pagination.
+- **Pre-built Payloads:** The [`jsons/`](jsons) directory contains pre-built, ready-to-use JSON payloads for manually verifying all endpoints and failure scenarios:
+  - **Valid Payloads:** `post_transaction_flight.json`, `post_transaction_hotel.json`, `post_transaction_rail.json`, `post_transaction_trip_fee.json`, `post_transaction_agent_call_fee.json`
+  - **Updates:** `patch_transaction.json`, `patch_invoice.json`
+  - **Invoices:** `post_invoice_single.json`, `post_invoice_trip.json`
+  - **Conflict Scenarios (409):** `post_transaction_duplicate.json`, `post_invoice_mixed_currency.json`, `post_invoice_duplicate_id.json`
+  - **Validation Failures (400):** `post_transaction_invalid_type.json`, `post_transaction_invalid_fee_kind.json`, `post_transaction_empty_metadata.json`, `post_transaction_flight_as_hotel_blob.json`, `post_invoice_empty.json`
 
-See [`jsons/README.md`](file:///Users/miha/Projects/NavanTestTask/jsons/README.md) for copy-paste `curl` commands for all payloads.
+See [`jsons/README.md`](jsons/README.md) for copy-paste `curl` commands for all payloads.
+For key design trade-offs and decisions, see the [Architecture Decision Records (ADRs)](docs/adr).
 
 ---
 
@@ -100,7 +114,7 @@ Every endpoint in the service is verified by automated integration tests for bot
 
 ### 6. Money Scale & Rounding Policy
 - All monetary amounts (`total`, tax amounts, fee amounts, fares, room rates, extras, invoice totals, rollups) use `BigDecimal` with a fixed scale of **2 decimal places** and **`RoundingMode.HALF_UP`**.
-- Database columns are defined as `NUMERIC(15, 2)`.
+- Database columns are defined as `NUMERIC(19, 2)`.
 - Floating-point IEEE 754 arithmetic is strictly prohibited throughout the codebase.
 
 ---

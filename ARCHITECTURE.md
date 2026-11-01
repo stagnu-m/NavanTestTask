@@ -29,8 +29,8 @@ erDiagram
 - **Strongly Typed `TransactionType` Enum:** Transaction types are defined via a type-safe `TransactionType` enum (`FLIGHT`, `HOTEL`, `RAIL`, `NAVAN_FEE`, and `UNSUPPORTED`).
   - Jackson's `@JsonCreator` parses incoming strings case-insensitively and maps unrecognized values to `UNSUPPORTED`, which is strictly rejected with `400 Bad Request`.
   - A custom JPA `TransactionTypeConverter` stores the canonical lowercase string in SQLite, ensuring relational schema cleanliness and backward compatibility.
-- **Flight (`transaction_flight_metadata`):** Stores `origin`, `destination`, `fare NUMERIC(15, 2)` joined to ordered `transaction_flight_coupons` (`flight_number`, `carrier`, `from_location`, `to_location`, `departure`, `arrival`, `coupon_order`).
-- **Hotel (`transaction_hotel_metadata`):** Stores `name`, `street`, `city`, `country`, `check_in`, `check_out`, `nights`, `room_rate_per_night NUMERIC(15, 2)` joined to `transaction_hotel_extras` (`name`, `amount NUMERIC(15, 2)`).
+- **Flight (`transaction_flight_metadata`):** Stores `origin`, `destination`, `fare NUMERIC(19, 2)` joined to ordered `transaction_flight_coupons` (`flight_number`, `carrier`, `from_location`, `to_location`, `departure`, `arrival`, `coupon_order`).
+- **Hotel (`transaction_hotel_metadata`):** Stores `name`, `street`, `city`, `country`, `check_in`, `check_out`, `nights`, `room_rate_per_night NUMERIC(19, 2)` joined to `transaction_hotel_extras` (`name`, `amount NUMERIC(19, 2)`).
 - **Rail (`transaction_rail_metadata`):** Joined to ordered `transaction_rail_legs` (`origin`, `destination`, `departure`, `arrival`, `train_number`, `travel_class`, `leg_order`).
 - **Navan Fee (`transaction_navan_fee_metadata`):** Stores `fee_kind` (strictly validated to `trip_fee` or `agent_call_fee`), `description`, and `related_external_id`.
 - **Money Scale:** All monetary fields use `BigDecimal` with a fixed scale of **2 decimal places** and **`RoundingMode.HALF_UP`**. Floating-point IEEE 754 arithmetic is strictly prohibited across all calculation paths.

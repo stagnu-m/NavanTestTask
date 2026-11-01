@@ -12,6 +12,10 @@ import com.navan.travel.model.entity.*;
 import com.navan.travel.repository.InvoiceLineRepository;
 import com.navan.travel.repository.OffsetLimitRequest;
 import com.navan.travel.repository.TransactionRepository;
+import jakarta.validation.ConstraintViolation;
+import jakarta.validation.Validation;
+import jakarta.validation.Validator;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.ConcurrencyFailureException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
@@ -20,30 +24,43 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Instant;
 import java.time.format.DateTimeParseException;
 import java.util.*;
+import java.util.stream.Collectors;
 
 @Service
 public class TransactionService {
 
     private static final Set<String> ALLOWED_FEE_KINDS = Set.of("trip_fee", "agent_call_fee");
-    private static final Object WRITE_LOCK = new Object();
 
     private final TransactionRepository transactionRepository;
     private final InvoiceLineRepository invoiceLineRepository;
     private final ObjectMapper objectMapper;
     private final TransactionTemplate transactionTemplate;
+    private final Validator validator;
 
     public TransactionService(TransactionRepository transactionRepository,
                               InvoiceLineRepository invoiceLineRepository,
                               ObjectMapper objectMapper,
                               PlatformTransactionManager transactionManager) {
+        this(transactionRepository, invoiceLineRepository, objectMapper, transactionManager,
+                Validation.buildDefaultValidatorFactory().getValidator());
+    }
+
+    @Autowired
+    public TransactionService(TransactionRepository transactionRepository,
+                              InvoiceLineRepository invoiceLineRepository,
+                              ObjectMapper objectMapper,
+                              PlatformTransactionManager transactionManager,
+                              Validator validator) {
         this.transactionRepository = transactionRepository;
         this.invoiceLineRepository = invoiceLineRepository;
         this.objectMapper = objectMapper;
         this.transactionTemplate = new TransactionTemplate(transactionManager);
+        this.validator = validator != null ? validator : Validation.buildDefaultValidatorFactory().getValidator();
     }
 
     public TransactionResponse createTransaction(TransactionRequest request) {
@@ -51,45 +68,54 @@ public class TransactionService {
             throw new BadRequestException("Unknown transaction type: " + (request.type() != null ? request.type().getValue() : "null"));
         }
 
-        synchronized (WRITE_LOCK) {
-            // Check if external_id already exists before starting transaction
-            Optional<TransactionEntity> existingOpt = transactionRepository.findByExternalId(request.externalId());
-            if (existingOpt.isPresent()) {
-                throw new ConflictException("Transaction with external_id already exists", existingOpt.get().getId());
-            }
+        Currency currency = validateCurrency(request.currency());
+        BigDecimal scaledTotal = validateMoney(request.total(), "total", currency);
 
-            validateMetadataNode(request.type(), request.metadata());
+        // Fast-path: check if external_id already exists before starting transaction
+        Optional<TransactionEntity> existingOpt = transactionRepository.findByExternalId(request.externalId());
+        if (existingOpt.isPresent()) {
+            throw new ConflictException("Transaction with external_id already exists", existingOpt.get().getId());
+        }
 
-            try {
-                return transactionTemplate.execute(status -> {
-                    // Double check inside transaction boundary
-                    Optional<TransactionEntity> inTxOpt = transactionRepository.findByExternalId(request.externalId());
-                    if (inTxOpt.isPresent()) {
-                        throw new ConflictException("Transaction with external_id already exists", inTxOpt.get().getId());
-                    }
+        validateMetadataNode(request.type(), request.metadata(), currency);
 
-                    String id = "txn_" + UUID.randomUUID().toString().replace("-", "");
-                    TransactionEntity entity = new TransactionEntity();
-                    entity.setId(id);
-                    entity.setType(request.type());
-                    entity.setExternalId(request.externalId());
-                    entity.setCurrency(request.currency().toUpperCase());
-                    entity.setOccurredAt(parseInstant(request.occurredAt()));
-                    entity.setTotal(request.total().setScale(2, RoundingMode.HALF_UP));
+        try {
+            return transactionTemplate.execute(status -> {
+                Optional<TransactionEntity> inTxOpt = transactionRepository.findByExternalId(request.externalId());
+                if (inTxOpt.isPresent()) {
+                    throw new ConflictException("Transaction with external_id already exists", inTxOpt.get().getId());
+                }
 
-                    populateTaxAndFeeLines(entity, request.taxLines(), request.feeLines());
-                    populateMetadataEntity(entity, request.type(), request.metadata());
+                String id = "txn_" + UUID.randomUUID().toString().replace("-", "");
+                TransactionEntity entity = new TransactionEntity();
+                entity.setId(id);
+                entity.setType(request.type());
+                entity.setExternalId(request.externalId());
+                entity.setCurrency(currency.getCurrencyCode());
+                entity.setOccurredAt(parseInstant(request.occurredAt()));
+                entity.setTotal(scaledTotal);
 
-                    TransactionEntity saved = transactionRepository.saveAndFlush(entity);
-                    return toResponse(saved);
-                });
-            } catch (DataIntegrityViolationException | ConcurrencyFailureException ex) {
+                populateTaxAndFeeLines(entity, request.taxLines(), request.feeLines(), currency);
+                populateMetadataEntity(entity, request.type(), request.metadata(), currency);
+
+                TransactionEntity saved = transactionRepository.saveAndFlush(entity);
+                return toResponse(saved);
+            });
+        } catch (DataIntegrityViolationException | ConcurrencyFailureException ex) {
+            // Concurrent duplicate create race: retry lookup to return winner ID
+            for (int i = 0; i < 10; i++) {
                 Optional<TransactionEntity> raceExisting = transactionRepository.findByExternalId(request.externalId());
                 if (raceExisting.isPresent()) {
                     throw new ConflictException("Transaction with external_id already exists", raceExisting.get().getId());
                 }
-                throw ex;
+                try {
+                    Thread.sleep(20);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    break;
+                }
             }
+            throw new ConflictException("Transaction with external_id already exists");
         }
     }
 
@@ -108,7 +134,6 @@ public class TransactionService {
         if (offset < 0) {
             throw new BadRequestException("offset cannot be negative");
         }
-
         Page<TransactionEntity> page = transactionRepository.findAll(new OffsetLimitRequest(limit, offset));
         return page.getContent().stream()
                 .map(this::toResponse)
@@ -125,27 +150,42 @@ public class TransactionService {
             throw new ConflictException("Transaction is included on an invoice and cannot be updated");
         }
 
-        if (request.type() != null && request.type() == TransactionType.UNSUPPORTED) {
-            throw new BadRequestException("Unknown transaction type: " + request.type().getValue());
+        if (request.type() != null) {
+            if (request.type() == TransactionType.UNSUPPORTED) {
+                throw new BadRequestException("Unknown transaction type: " + request.type().getValue());
+            }
+            if (request.type() != entity.getType()) {
+                throw new BadRequestException("Changing transaction type is not supported");
+            }
         }
+
+        if (request.externalId() != null && !request.externalId().equals(entity.getExternalId())) {
+            throw new BadRequestException("Changing external_id is not supported");
+        }
+
+        if (request.currency() != null && !request.currency().equalsIgnoreCase(entity.getCurrency())) {
+            throw new BadRequestException("Changing currency is not supported");
+        }
+
+        Currency currency = Currency.getInstance(entity.getCurrency());
 
         if (request.occurredAt() != null) {
             entity.setOccurredAt(parseInstant(request.occurredAt()));
         }
         if (request.total() != null) {
-            entity.setTotal(request.total().setScale(2, RoundingMode.HALF_UP));
+            entity.setTotal(validateMoney(request.total(), "total", currency));
         }
 
         if (request.taxLines() != null || request.feeLines() != null) {
             populateTaxAndFeeLines(entity,
                     request.taxLines() != null ? request.taxLines() : Collections.emptyList(),
-                    request.feeLines() != null ? request.feeLines() : Collections.emptyList());
+                    request.feeLines() != null ? request.feeLines() : Collections.emptyList(),
+                    currency);
         }
 
         if (request.metadata() != null) {
-            TransactionType type = request.type() != null ? request.type() : entity.getType();
-            validateMetadataNode(type, request.metadata());
-            populateMetadataEntity(entity, type, request.metadata());
+            validateMetadataNode(entity.getType(), request.metadata(), currency);
+            populateMetadataEntity(entity, entity.getType(), request.metadata(), currency);
         }
 
         TransactionEntity saved = transactionRepository.saveAndFlush(entity);
@@ -166,6 +206,10 @@ public class TransactionService {
     }
 
     public void validateMetadataNode(TransactionType type, JsonNode metadata) {
+        validateMetadataNode(type, metadata, Currency.getInstance("EUR"));
+    }
+
+    public void validateMetadataNode(TransactionType type, JsonNode metadata, Currency currency) {
         if (type == null || type == TransactionType.UNSUPPORTED) {
             throw new BadRequestException("Unknown transaction type: " + (type != null ? type.getValue() : "null"));
         }
@@ -177,13 +221,13 @@ public class TransactionService {
             switch (type) {
                 case FLIGHT -> {
                     FlightMetadataDto dto = objectMapper.treeToValue(metadata, FlightMetadataDto.class);
-                    if (dto.origin() == null || dto.origin().isBlank() ||
-                        dto.destination() == null || dto.destination().isBlank() ||
-                        dto.fare() == null || dto.coupons() == null || dto.coupons().isEmpty()) {
-                        throw new BadRequestException("Invalid flight metadata: origin, destination, fare, and coupons are required");
+                    validateWithValidator(dto, "flight");
+                    if (dto.coupons() == null || dto.coupons().isEmpty()) {
+                        throw new BadRequestException("Invalid flight metadata: coupons are required");
                     }
+                    validateMoney(dto.fare(), "flight fare", currency);
                     for (FlightCouponDto coupon : dto.coupons()) {
-                        if (coupon.flightNumber() == null || coupon.flightNumber().isBlank() ||
+                        if (coupon == null || coupon.flightNumber() == null || coupon.flightNumber().isBlank() ||
                             coupon.from() == null || coupon.to() == null ||
                             coupon.departure() == null || coupon.arrival() == null) {
                             throw new BadRequestException("Flight coupon must have flight_number, from, to, departure, arrival");
@@ -192,23 +236,28 @@ public class TransactionService {
                 }
                 case HOTEL -> {
                     HotelMetadataDto dto = objectMapper.treeToValue(metadata, HotelMetadataDto.class);
-                    if (dto.name() == null || dto.name().isBlank() ||
-                        dto.address() == null || dto.checkIn() == null ||
-                        dto.checkOut() == null || dto.nights() == null ||
-                        dto.roomRatePerNight() == null) {
-                        throw new BadRequestException("Invalid hotel metadata: name, address, check_in, check_out, nights, room_rate_per_night required");
+                    validateWithValidator(dto, "hotel");
+                    if (dto.nights() == null || dto.nights() <= 0) {
+                        throw new BadRequestException("Hotel nights must be greater than zero");
                     }
-                    if (dto.address().street() == null || dto.address().city() == null || dto.address().country() == null) {
-                        throw new BadRequestException("Hotel address must include street, city, country");
+                    validateMoney(dto.roomRatePerNight(), "hotel room_rate_per_night", currency);
+                    if (dto.extras() != null) {
+                        for (HotelExtraDto extra : dto.extras()) {
+                            if (extra == null || extra.name() == null || extra.name().isBlank()) {
+                                throw new BadRequestException("Hotel extra name cannot be blank");
+                            }
+                            validateMoney(extra.amount(), "hotel extra amount", currency);
+                        }
                     }
                 }
                 case RAIL -> {
                     RailMetadataDto dto = objectMapper.treeToValue(metadata, RailMetadataDto.class);
+                    validateWithValidator(dto, "rail");
                     if (dto.legs() == null || dto.legs().isEmpty()) {
                         throw new BadRequestException("Rail metadata must include at least one leg");
                     }
                     for (RailLegDto leg : dto.legs()) {
-                        if (leg.origin() == null || leg.destination() == null ||
+                        if (leg == null || leg.origin() == null || leg.destination() == null ||
                             leg.departure() == null || leg.arrival() == null) {
                             throw new BadRequestException("Rail leg must include origin, destination, departure, arrival");
                         }
@@ -219,6 +268,7 @@ public class TransactionService {
                     if (dto.feeKind() == null || !ALLOWED_FEE_KINDS.contains(dto.feeKind())) {
                         throw new BadRequestException("Unknown navan_fee fee_kind: " + (dto.feeKind() != null ? dto.feeKind() : "null"));
                     }
+                    validateWithValidator(dto, "navan_fee");
                 }
                 default -> throw new BadRequestException("Unknown transaction type: " + type.getValue());
             }
@@ -227,15 +277,53 @@ public class TransactionService {
         }
     }
 
-    private void populateTaxAndFeeLines(TransactionEntity entity, List<TaxLineDto> taxLines, List<FeeLineDto> feeLines) {
+    private void validateWithValidator(Object target, String context) {
+        Set<ConstraintViolation<Object>> violations = validator.validate(target);
+        if (!violations.isEmpty()) {
+            String msg = violations.stream().map(ConstraintViolation::getMessage).collect(Collectors.joining("; "));
+            throw new BadRequestException("Invalid " + context + " metadata: " + msg);
+        }
+    }
+
+    private Currency validateCurrency(String currency) {
+        if (currency == null || currency.isBlank()) {
+            throw new BadRequestException("currency cannot be blank");
+        }
+        try {
+            return Currency.getInstance(currency.toUpperCase(Locale.ROOT));
+        } catch (IllegalArgumentException e) {
+            throw new BadRequestException("Invalid ISO-4217 currency code: " + currency);
+        }
+    }
+
+    private BigDecimal validateMoney(BigDecimal amount, String fieldName, Currency currency) {
+        if (amount == null) {
+            throw new BadRequestException(fieldName + " cannot be null");
+        }
+        if (amount.compareTo(BigDecimal.ZERO) < 0) {
+            throw new BadRequestException(fieldName + " cannot be negative");
+        }
+        int maxScale = Math.max(0, currency.getDefaultFractionDigits());
+        int effectiveScale = amount.compareTo(BigDecimal.ZERO) == 0 ? 0 : amount.stripTrailingZeros().scale();
+        if (effectiveScale > maxScale) {
+            throw new BadRequestException(fieldName + " scale exceeds maximum " + maxScale + " decimal places for currency " + currency.getCurrencyCode());
+        }
+        return amount.setScale(maxScale, RoundingMode.HALF_UP);
+    }
+
+    private void populateTaxAndFeeLines(TransactionEntity entity, List<TaxLineDto> taxLines, List<FeeLineDto> feeLines, Currency currency) {
         entity.getTaxLines().clear();
         if (taxLines != null) {
             for (TaxLineDto taxDto : taxLines) {
+                if (taxDto == null || taxDto.name() == null || taxDto.name().isBlank()) {
+                    throw new BadRequestException("Tax name cannot be blank");
+                }
+                BigDecimal amount = validateMoney(taxDto.amount(), "Tax amount", currency);
                 TransactionTaxLineEntity taxEntity = new TransactionTaxLineEntity();
                 taxEntity.setTransaction(entity);
                 taxEntity.setName(taxDto.name());
                 taxEntity.setRate(taxDto.rate());
-                taxEntity.setAmount(taxDto.amount().setScale(2, RoundingMode.HALF_UP));
+                taxEntity.setAmount(amount);
                 entity.getTaxLines().add(taxEntity);
             }
         }
@@ -243,16 +331,20 @@ public class TransactionService {
         entity.getFeeLines().clear();
         if (feeLines != null) {
             for (FeeLineDto feeDto : feeLines) {
+                if (feeDto == null || feeDto.name() == null || feeDto.name().isBlank()) {
+                    throw new BadRequestException("Fee name cannot be blank");
+                }
+                BigDecimal amount = validateMoney(feeDto.amount(), "Fee amount", currency);
                 TransactionFeeLineEntity feeEntity = new TransactionFeeLineEntity();
                 feeEntity.setTransaction(entity);
                 feeEntity.setName(feeDto.name());
-                feeEntity.setAmount(feeDto.amount().setScale(2, RoundingMode.HALF_UP));
+                feeEntity.setAmount(amount);
                 entity.getFeeLines().add(feeEntity);
             }
         }
     }
 
-    private void populateMetadataEntity(TransactionEntity entity, TransactionType type, JsonNode metadataNode) {
+    private void populateMetadataEntity(TransactionEntity entity, TransactionType type, JsonNode metadataNode, Currency currency) {
         try {
             switch (type) {
                 case FLIGHT -> {
@@ -261,7 +353,7 @@ public class TransactionService {
                     flightEntity.setTransaction(entity);
                     flightEntity.setOrigin(dto.origin());
                     flightEntity.setDestination(dto.destination());
-                    flightEntity.setFare(dto.fare().setScale(2, RoundingMode.HALF_UP));
+                    flightEntity.setFare(validateMoney(dto.fare(), "flight fare", currency));
 
                     int order = 0;
                     for (FlightCouponDto c : dto.coupons()) {
@@ -289,14 +381,14 @@ public class TransactionService {
                     hotelEntity.setCheckIn(dto.checkIn());
                     hotelEntity.setCheckOut(dto.checkOut());
                     hotelEntity.setNights(dto.nights());
-                    hotelEntity.setRoomRatePerNight(dto.roomRatePerNight().setScale(2, RoundingMode.HALF_UP));
+                    hotelEntity.setRoomRatePerNight(validateMoney(dto.roomRatePerNight(), "hotel room_rate_per_night", currency));
 
                     if (dto.extras() != null) {
                         for (HotelExtraDto extraDto : dto.extras()) {
                             HotelExtraEntity extraEntity = new HotelExtraEntity();
                             extraEntity.setHotelMetadata(hotelEntity);
                             extraEntity.setName(extraDto.name());
-                            extraEntity.setAmount(extraDto.amount().setScale(2, RoundingMode.HALF_UP));
+                            extraEntity.setAmount(validateMoney(extraDto.amount(), "hotel extra amount", currency));
                             hotelEntity.getExtras().add(extraEntity);
                         }
                     }
@@ -328,22 +420,28 @@ public class TransactionService {
                     feeEntity.setTransaction(entity);
                     feeEntity.setFeeKind(dto.feeKind());
                     feeEntity.setDescription(dto.description());
-                    feeEntity.setRelatedExternalId(dto.relatedExternalId());
                     entity.setNavanFeeMetadata(feeEntity);
                 }
-                default -> throw new BadRequestException("Unknown transaction type: " + type.getValue());
             }
         } catch (JsonProcessingException e) {
-            throw new BadRequestException("Failed to parse metadata: " + e.getMessage());
+            throw new BadRequestException("Malformed metadata JSON: " + e.getMessage());
+        }
+    }
+
+    private Instant parseInstant(String text) {
+        try {
+            return Instant.parse(text);
+        } catch (DateTimeParseException e) {
+            throw new BadRequestException("Invalid ISO-8601 date-time format: " + text);
         }
     }
 
     public TransactionResponse toResponse(TransactionEntity entity) {
-        List<TaxLineDto> taxList = entity.getTaxLines().stream()
+        List<TaxLineDto> taxDtos = entity.getTaxLines().stream()
                 .map(t -> new TaxLineDto(t.getName(), t.getRate(), t.getAmount()))
                 .toList();
 
-        List<FeeLineDto> feeList = entity.getFeeLines().stream()
+        List<FeeLineDto> feeDtos = entity.getFeeLines().stream()
                 .map(f -> new FeeLineDto(f.getName(), f.getAmount()))
                 .toList();
 
@@ -356,8 +454,8 @@ public class TransactionService {
                 entity.getCurrency(),
                 entity.getOccurredAt().toString(),
                 entity.getTotal(),
-                taxList,
-                feeList,
+                taxDtos,
+                feeDtos,
                 metadataObj
         );
     }
@@ -376,24 +474,26 @@ public class TransactionService {
                                 c.getDeparture(),
                                 c.getArrival()))
                         .toList();
-                yield new FlightMetadataDto(flight.getOrigin(), flight.getDestination(), flight.getFare(), coupons);
+                yield new FlightMetadataDto(
+                        flight.getOrigin(),
+                        flight.getDestination(),
+                        flight.getFare(),
+                        coupons);
             }
             case HOTEL -> {
                 HotelMetadataEntity hotel = entity.getHotelMetadata();
                 if (hotel == null) yield Collections.emptyMap();
-                AddressDto address = new AddressDto(hotel.getStreet(), hotel.getCity(), hotel.getCountry());
                 List<HotelExtraDto> extras = hotel.getExtras().stream()
                         .map(e -> new HotelExtraDto(e.getName(), e.getAmount()))
                         .toList();
                 yield new HotelMetadataDto(
                         hotel.getName(),
-                        address,
+                        new AddressDto(hotel.getStreet(), hotel.getCity(), hotel.getCountry()),
                         hotel.getCheckIn(),
                         hotel.getCheckOut(),
                         hotel.getNights(),
                         hotel.getRoomRatePerNight(),
-                        extras
-                );
+                        extras);
             }
             case RAIL -> {
                 RailMetadataEntity rail = entity.getRailMetadata();
@@ -412,17 +512,12 @@ public class TransactionService {
             case NAVAN_FEE -> {
                 NavanFeeMetadataEntity fee = entity.getNavanFeeMetadata();
                 if (fee == null) yield Collections.emptyMap();
-                yield new NavanFeeMetadataDto(fee.getFeeKind(), fee.getDescription(), fee.getRelatedExternalId());
+                yield new NavanFeeMetadataDto(
+                        fee.getFeeKind(),
+                        fee.getDescription(),
+                        fee.getRelatedExternalId());
             }
             default -> Collections.emptyMap();
         };
-    }
-
-    private Instant parseInstant(String dateStr) {
-        try {
-            return Instant.parse(dateStr);
-        } catch (DateTimeParseException e) {
-            throw new BadRequestException("Invalid ISO-8601 timestamp: " + dateStr);
-        }
     }
 }
