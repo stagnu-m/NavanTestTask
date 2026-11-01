@@ -8,7 +8,6 @@ import com.navan.travel.dto.FeeLineDto;
 import com.navan.travel.dto.TaxLineDto;
 import com.navan.travel.dto.TransactionRequest;
 import com.navan.travel.exception.BadRequestException;
-import com.navan.travel.exception.NotFoundException;
 import com.navan.travel.model.TransactionType;
 import com.navan.travel.model.entity.TransactionEntity;
 import com.navan.travel.repository.InvoiceLineRepository;

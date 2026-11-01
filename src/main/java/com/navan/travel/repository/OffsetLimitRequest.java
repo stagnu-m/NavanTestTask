@@ -2,6 +2,8 @@ package com.navan.travel.repository;
 
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
+import org.springframework.lang.NonNull;
+import org.springframework.lang.Nullable;
 
 public class OffsetLimitRequest implements Pageable {
 
@@ -9,7 +11,7 @@ public class OffsetLimitRequest implements Pageable {
     private final long offset;
     private final Sort sort;
 
-    public OffsetLimitRequest(int limit, long offset, Sort sort) {
+    public OffsetLimitRequest(int limit, long offset, @Nullable Sort sort) {
         if (limit < 1) {
             throw new IllegalArgumentException("Limit must be greater than zero");
         }
@@ -41,30 +43,36 @@ public class OffsetLimitRequest implements Pageable {
     }
 
     @Override
+    @NonNull
     public Sort getSort() {
         return sort;
     }
 
     @Override
+    @NonNull
     public Pageable next() {
         return new OffsetLimitRequest(getPageSize(), getOffset() + getPageSize(), getSort());
     }
 
+    @NonNull
     public Pageable previous() {
         return hasPrevious() ? new OffsetLimitRequest(getPageSize(), getOffset() - getPageSize(), getSort()) : this;
     }
 
     @Override
+    @NonNull
     public Pageable previousOrFirst() {
         return hasPrevious() ? previous() : first();
     }
 
     @Override
+    @NonNull
     public Pageable first() {
         return new OffsetLimitRequest(getPageSize(), 0, getSort());
     }
 
     @Override
+    @NonNull
     public Pageable withPage(int pageNumber) {
         return new OffsetLimitRequest(getPageSize(), (long) pageNumber * getPageSize(), getSort());
     }
@@ -75,7 +83,7 @@ public class OffsetLimitRequest implements Pageable {
     }
 
     @Override
-    public boolean equals(Object o) {
+    public boolean equals(@Nullable Object o) {
         if (this == o) return true;
         if (!(o instanceof OffsetLimitRequest that)) return false;
         return limit == that.limit && offset == that.offset && sort.equals(that.sort);

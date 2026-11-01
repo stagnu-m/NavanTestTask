@@ -15,6 +15,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.client.TestRestTemplate;
 import org.springframework.http.*;
+import org.springframework.lang.NonNull;
 import org.springframework.test.context.ActiveProfiles;
 
 import java.math.BigDecimal;
@@ -44,6 +45,13 @@ public class TravelCommerceIntegrationTest {
     private ObjectMapper objectMapper;
 
     private JsonNode seeds;
+
+    @NonNull
+    private static <T> T body(ResponseEntity<T> response) {
+        assertThat(response).isNotNull();
+        assertThat(response.getBody()).isNotNull();
+        return Objects.requireNonNull(response.getBody());
+    }
 
     @BeforeEach
     void setUp() throws Exception {
@@ -76,12 +84,12 @@ public class TravelCommerceIntegrationTest {
                 new HttpEntity<>(seeds.get("flight"), jsonHeaders()),
                 JsonNode.class);
         assertThat(flightRes.getStatusCode()).isEqualTo(HttpStatus.CREATED);
-        String flightId = flightRes.getBody().get("id").asText();
+        String flightId = body(flightRes).get("id").asText();
 
         // Verify flight GET
         ResponseEntity<JsonNode> getFlight = restTemplate.getForEntity("/transactions/" + flightId, JsonNode.class);
         assertThat(getFlight.getStatusCode()).isEqualTo(HttpStatus.OK);
-        JsonNode flightMeta = getFlight.getBody().get("metadata");
+        JsonNode flightMeta = body(getFlight).get("metadata");
         assertThat(flightMeta.get("origin").asText()).isEqualTo("TXL");
         assertThat(flightMeta.get("destination").asText()).isEqualTo("LHR");
         assertThat(flightMeta.get("coupons").isArray()).isTrue();
@@ -93,11 +101,11 @@ public class TravelCommerceIntegrationTest {
                 new HttpEntity<>(seeds.get("hotel"), jsonHeaders()),
                 JsonNode.class);
         assertThat(hotelRes.getStatusCode()).isEqualTo(HttpStatus.CREATED);
-        String hotelId = hotelRes.getBody().get("id").asText();
+        String hotelId = body(hotelRes).get("id").asText();
 
         // Verify hotel GET
         ResponseEntity<JsonNode> getHotel = restTemplate.getForEntity("/transactions/" + hotelId, JsonNode.class);
-        JsonNode hotelMeta = getHotel.getBody().get("metadata");
+        JsonNode hotelMeta = body(getHotel).get("metadata");
         assertThat(hotelMeta.get("name").asText()).isEqualTo("Hotel Mitte London");
         assertThat(hotelMeta.get("address").get("street").asText()).isEqualTo("12 Kingsway");
         assertThat(hotelMeta.get("address").get("city").asText()).isEqualTo("London");
@@ -109,11 +117,11 @@ public class TravelCommerceIntegrationTest {
                 new HttpEntity<>(seeds.get("rail"), jsonHeaders()),
                 JsonNode.class);
         assertThat(railRes.getStatusCode()).isEqualTo(HttpStatus.CREATED);
-        String railId = railRes.getBody().get("id").asText();
+        String railId = body(railRes).get("id").asText();
 
         // Verify rail GET
         ResponseEntity<JsonNode> getRail = restTemplate.getForEntity("/transactions/" + railId, JsonNode.class);
-        JsonNode railMeta = getRail.getBody().get("metadata");
+        JsonNode railMeta = body(getRail).get("metadata");
         assertThat(railMeta.get("legs").size()).isEqualTo(2);
         assertThat(railMeta.get("legs").get(0).get("origin").asText()).isEqualTo("London St Pancras");
         assertThat(railMeta.get("legs").get(1).get("destination").asText()).isEqualTo("Paris Nord");
@@ -124,10 +132,10 @@ public class TravelCommerceIntegrationTest {
                 new HttpEntity<>(seeds.get("trip_fee"), jsonHeaders()),
                 JsonNode.class);
         assertThat(tripFeeRes.getStatusCode()).isEqualTo(HttpStatus.CREATED);
-        String tripFeeId = tripFeeRes.getBody().get("id").asText();
+        String tripFeeId = body(tripFeeRes).get("id").asText();
 
         ResponseEntity<JsonNode> getTripFee = restTemplate.getForEntity("/transactions/" + tripFeeId, JsonNode.class);
-        assertThat(getTripFee.getBody().get("metadata").get("fee_kind").asText()).isEqualTo("trip_fee");
+        assertThat(body(getTripFee).get("metadata").get("fee_kind").asText()).isEqualTo("trip_fee");
 
         // Create agent_call_fee
         ResponseEntity<JsonNode> agentFeeRes = restTemplate.postForEntity(
@@ -135,10 +143,10 @@ public class TravelCommerceIntegrationTest {
                 new HttpEntity<>(seeds.get("agent_call_fee"), jsonHeaders()),
                 JsonNode.class);
         assertThat(agentFeeRes.getStatusCode()).isEqualTo(HttpStatus.CREATED);
-        String agentFeeId = agentFeeRes.getBody().get("id").asText();
+        String agentFeeId = body(agentFeeRes).get("id").asText();
 
         ResponseEntity<JsonNode> getAgentFee = restTemplate.getForEntity("/transactions/" + agentFeeId, JsonNode.class);
-        assertThat(getAgentFee.getBody().get("metadata").get("fee_kind").asText()).isEqualTo("agent_call_fee");
+        assertThat(body(getAgentFee).get("metadata").get("fee_kind").asText()).isEqualTo("agent_call_fee");
     }
 
     @Test
@@ -149,7 +157,7 @@ public class TravelCommerceIntegrationTest {
                 new HttpEntity<>(seeds.get("flight"), jsonHeaders()),
                 JsonNode.class);
         assertThat(res1.getStatusCode()).isEqualTo(HttpStatus.CREATED);
-        String existingId = res1.getBody().get("id").asText();
+        String existingId = body(res1).get("id").asText();
 
         // Second POST with same external_id
         ResponseEntity<JsonNode> res2 = restTemplate.postForEntity(
@@ -157,7 +165,7 @@ public class TravelCommerceIntegrationTest {
                 new HttpEntity<>(seeds.get("duplicate_flight"), jsonHeaders()),
                 JsonNode.class);
         assertThat(res2.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
-        assertThat(res2.getBody().get("id").asText()).isEqualTo(existingId);
+        assertThat(body(res2).get("id").asText()).isEqualTo(existingId);
 
         // Verify only 1 row exists
         assertThat(transactionRepository.findAll()).hasSize(1);
@@ -166,17 +174,17 @@ public class TravelCommerceIntegrationTest {
     @Test
     @DisplayName("3. Invoice by transaction ids: trip invoice totals match expected-invoice.json (grand total 685.70 EUR)")
     void test3_tripInvoiceTotalsAndRollupsMatchExpected() {
-        String flightId = restTemplate.postForEntity("/transactions", new HttpEntity<>(seeds.get("flight"), jsonHeaders()), JsonNode.class).getBody().get("id").asText();
-        String hotelId = restTemplate.postForEntity("/transactions", new HttpEntity<>(seeds.get("hotel"), jsonHeaders()), JsonNode.class).getBody().get("id").asText();
-        String railId = restTemplate.postForEntity("/transactions", new HttpEntity<>(seeds.get("rail"), jsonHeaders()), JsonNode.class).getBody().get("id").asText();
-        String tripFeeId = restTemplate.postForEntity("/transactions", new HttpEntity<>(seeds.get("trip_fee"), jsonHeaders()), JsonNode.class).getBody().get("id").asText();
-        String agentFeeId = restTemplate.postForEntity("/transactions", new HttpEntity<>(seeds.get("agent_call_fee"), jsonHeaders()), JsonNode.class).getBody().get("id").asText();
+        String flightId = body(restTemplate.postForEntity("/transactions", new HttpEntity<>(seeds.get("flight"), jsonHeaders()), JsonNode.class)).get("id").asText();
+        String hotelId = body(restTemplate.postForEntity("/transactions", new HttpEntity<>(seeds.get("hotel"), jsonHeaders()), JsonNode.class)).get("id").asText();
+        String railId = body(restTemplate.postForEntity("/transactions", new HttpEntity<>(seeds.get("rail"), jsonHeaders()), JsonNode.class)).get("id").asText();
+        String tripFeeId = body(restTemplate.postForEntity("/transactions", new HttpEntity<>(seeds.get("trip_fee"), jsonHeaders()), JsonNode.class)).get("id").asText();
+        String agentFeeId = body(restTemplate.postForEntity("/transactions", new HttpEntity<>(seeds.get("agent_call_fee"), jsonHeaders()), JsonNode.class)).get("id").asText();
 
         CreateInvoiceRequest invoiceReq = new CreateInvoiceRequest(null, List.of(flightId, hotelId, railId, tripFeeId, agentFeeId));
         ResponseEntity<JsonNode> invoiceRes = restTemplate.postForEntity("/invoices", new HttpEntity<>(invoiceReq, jsonHeaders()), JsonNode.class);
 
         assertThat(invoiceRes.getStatusCode()).isEqualTo(HttpStatus.CREATED);
-        JsonNode body = invoiceRes.getBody();
+        JsonNode body = body(invoiceRes);
 
         assertThat(body.get("currency").asText()).isEqualTo("EUR");
         JsonNode totals = body.get("totals");
@@ -226,12 +234,12 @@ public class TravelCommerceIntegrationTest {
     @Test
     @DisplayName("4. Snapshot: mutating underlying transaction table row does not alter existing invoice")
     void test4_invoiceSnapshotImmutability() {
-        String flightId = restTemplate.postForEntity("/transactions", new HttpEntity<>(seeds.get("flight"), jsonHeaders()), JsonNode.class).getBody().get("id").asText();
+        String flightId = body(restTemplate.postForEntity("/transactions", new HttpEntity<>(seeds.get("flight"), jsonHeaders()), JsonNode.class)).get("id").asText();
 
         CreateInvoiceRequest invoiceReq = new CreateInvoiceRequest(flightId, null);
         ResponseEntity<JsonNode> invoiceRes = restTemplate.postForEntity("/invoices", new HttpEntity<>(invoiceReq, jsonHeaders()), JsonNode.class);
-        String invoiceId = invoiceRes.getBody().get("id").asText();
-        assertThat(invoiceRes.getBody().get("totals").get("grand_total").asDouble()).isEqualTo(220.00);
+        String invoiceId = body(invoiceRes).get("id").asText();
+        assertThat(body(invoiceRes).get("totals").get("grand_total").asDouble()).isEqualTo(220.00);
 
         // Mutate stored transaction in the database directly
         TransactionEntity tx = transactionRepository.findById(flightId).orElseThrow();
@@ -240,18 +248,18 @@ public class TravelCommerceIntegrationTest {
 
         // Fetch invoice: snapshot totals must remain frozen at 220.00
         ResponseEntity<JsonNode> getInvoice = restTemplate.getForEntity("/invoices/" + invoiceId, JsonNode.class);
-        assertThat(getInvoice.getBody().get("totals").get("flight").asDouble()).isEqualTo(220.00);
-        assertThat(getInvoice.getBody().get("totals").get("grand_total").asDouble()).isEqualTo(220.00);
+        assertThat(body(getInvoice).get("totals").get("flight").asDouble()).isEqualTo(220.00);
+        assertThat(body(getInvoice).get("totals").get("grand_total").asDouble()).isEqualTo(220.00);
     }
 
     @Test
     @DisplayName("5. Mixed currency: invoice of EUR + USD returns 409")
     void test5_mixedCurrency_returns409() throws Exception {
-        String eurId = restTemplate.postForEntity("/transactions", new HttpEntity<>(seeds.get("flight"), jsonHeaders()), JsonNode.class).getBody().get("id").asText();
+        String eurId = body(restTemplate.postForEntity("/transactions", new HttpEntity<>(seeds.get("flight"), jsonHeaders()), JsonNode.class)).get("id").asText();
 
         // Create USD transaction
         String usdPayload = objectMapper.writeValueAsString(seeds.get("hotel")).replace("\"EUR\"", "\"USD\"").replace("hotel-LON-2026-03-11", "hotel-USD-2026");
-        String usdId = restTemplate.postForEntity("/transactions", new HttpEntity<>(usdPayload, jsonHeaders()), JsonNode.class).getBody().get("id").asText();
+        String usdId = body(restTemplate.postForEntity("/transactions", new HttpEntity<>(usdPayload, jsonHeaders()), JsonNode.class)).get("id").asText();
 
         CreateInvoiceRequest invoiceReq = new CreateInvoiceRequest(null, List.of(eurId, usdId));
         ResponseEntity<JsonNode> invoiceRes = restTemplate.postForEntity("/invoices", new HttpEntity<>(invoiceReq, jsonHeaders()), JsonNode.class);
@@ -287,12 +295,12 @@ public class TravelCommerceIntegrationTest {
             ResponseEntity<JsonNode> res = f.get();
             if (res.getStatusCode() == HttpStatus.CREATED) {
                 createdCount++;
-                createdId = res.getBody().get("id").asText();
+                createdId = body(res).get("id").asText();
             } else if (res.getStatusCode() == HttpStatus.CONFLICT) {
                 conflictCount++;
-                assertThat(res.getBody().get("id").asText()).isNotBlank();
+                assertThat(body(res).get("id").asText()).isNotBlank();
             } else {
-                System.err.println("UNEXPECTED STATUS in test6: " + res.getStatusCode() + " body=" + res.getBody());
+                System.err.println("UNEXPECTED STATUS in test6: " + res.getStatusCode() + " body=" + body(res));
             }
         }
 
@@ -304,10 +312,10 @@ public class TravelCommerceIntegrationTest {
     @Test
     @DisplayName("7. PATCH transaction after it is on an invoice returns 409; invoice snapshot totals unchanged")
     void test7_patchInvoicedTransaction_returns409() throws Exception {
-        String flightId = restTemplate.postForEntity("/transactions", new HttpEntity<>(seeds.get("flight"), jsonHeaders()), JsonNode.class).getBody().get("id").asText();
+        String flightId = body(restTemplate.postForEntity("/transactions", new HttpEntity<>(seeds.get("flight"), jsonHeaders()), JsonNode.class)).get("id").asText();
 
         CreateInvoiceRequest invoiceReq = new CreateInvoiceRequest(flightId, null);
-        String invoiceId = restTemplate.postForEntity("/invoices", new HttpEntity<>(invoiceReq, jsonHeaders()), JsonNode.class).getBody().get("id").asText();
+        String invoiceId = body(restTemplate.postForEntity("/invoices", new HttpEntity<>(invoiceReq, jsonHeaders()), JsonNode.class)).get("id").asText();
 
         // Attempt PATCH on invoiced transaction
         String patchBody = "{\"total\": 500.00}";
@@ -319,17 +327,17 @@ public class TravelCommerceIntegrationTest {
 
         // Transaction total remains 220.00
         ResponseEntity<JsonNode> getTx = restTemplate.getForEntity("/transactions/" + flightId, JsonNode.class);
-        assertThat(getTx.getBody().get("total").asDouble()).isEqualTo(220.00);
+        assertThat(body(getTx).get("total").asDouble()).isEqualTo(220.00);
 
         // Invoice total remains 220.00
         ResponseEntity<JsonNode> getInv = restTemplate.getForEntity("/invoices/" + invoiceId, JsonNode.class);
-        assertThat(getInv.getBody().get("totals").get("grand_total").asDouble()).isEqualTo(220.00);
+        assertThat(body(getInv).get("totals").get("grand_total").asDouble()).isEqualTo(220.00);
     }
 
     @Test
     @DisplayName("8. DELETE transaction on an invoice returns 409; row still exists")
     void test8_deleteInvoicedTransaction_returns409() {
-        String flightId = restTemplate.postForEntity("/transactions", new HttpEntity<>(seeds.get("flight"), jsonHeaders()), JsonNode.class).getBody().get("id").asText();
+        String flightId = body(restTemplate.postForEntity("/transactions", new HttpEntity<>(seeds.get("flight"), jsonHeaders()), JsonNode.class)).get("id").asText();
 
         CreateInvoiceRequest invoiceReq = new CreateInvoiceRequest(flightId, null);
         restTemplate.postForEntity("/invoices", new HttpEntity<>(invoiceReq, jsonHeaders()), JsonNode.class);
@@ -346,10 +354,10 @@ public class TravelCommerceIntegrationTest {
     @Test
     @DisplayName("9. DELETE invoice removes the invoice; transactions still GET")
     void test9_deleteInvoice_preservesTransactions() {
-        String flightId = restTemplate.postForEntity("/transactions", new HttpEntity<>(seeds.get("flight"), jsonHeaders()), JsonNode.class).getBody().get("id").asText();
+        String flightId = body(restTemplate.postForEntity("/transactions", new HttpEntity<>(seeds.get("flight"), jsonHeaders()), JsonNode.class)).get("id").asText();
 
         CreateInvoiceRequest invoiceReq = new CreateInvoiceRequest(flightId, null);
-        String invoiceId = restTemplate.postForEntity("/invoices", new HttpEntity<>(invoiceReq, jsonHeaders()), JsonNode.class).getBody().get("id").asText();
+        String invoiceId = body(restTemplate.postForEntity("/invoices", new HttpEntity<>(invoiceReq, jsonHeaders()), JsonNode.class)).get("id").asText();
 
         // DELETE invoice
         ResponseEntity<Void> delRes = restTemplate.exchange("/invoices/" + invoiceId, HttpMethod.DELETE, null, Void.class);
@@ -377,7 +385,7 @@ public class TravelCommerceIntegrationTest {
         // Default query: should return 50 items
         ResponseEntity<JsonNode> defaultRes = restTemplate.getForEntity("/transactions", JsonNode.class);
         assertThat(defaultRes.getStatusCode()).isEqualTo(HttpStatus.OK);
-        assertThat(defaultRes.getBody().size()).isEqualTo(50);
+        assertThat(body(defaultRes).size()).isEqualTo(50);
 
         // limit=1000 exceeds max allowed (100) -> 400 Bad Request
         ResponseEntity<JsonNode> cappedRes = restTemplate.getForEntity("/transactions?limit=1000", JsonNode.class);
@@ -386,7 +394,7 @@ public class TravelCommerceIntegrationTest {
         // offset=50, limit=10 -> remaining 5 items
         ResponseEntity<JsonNode> offsetRes = restTemplate.getForEntity("/transactions?offset=50&limit=10", JsonNode.class);
         assertThat(offsetRes.getStatusCode()).isEqualTo(HttpStatus.OK);
-        assertThat(offsetRes.getBody().size()).isEqualTo(5);
+        assertThat(body(offsetRes).size()).isEqualTo(5);
     }
 
     @Test
@@ -412,7 +420,7 @@ public class TravelCommerceIntegrationTest {
     void test12_healthEndpoint() {
         ResponseEntity<JsonNode> res = restTemplate.getForEntity("/health", JsonNode.class);
         assertThat(res.getStatusCode()).isEqualTo(HttpStatus.OK);
-        assertThat(res.getBody().get("status").asText()).isEqualTo("UP");
+        assertThat(body(res).get("status").asText()).isEqualTo("UP");
     }
 
     @Test
@@ -420,7 +428,7 @@ public class TravelCommerceIntegrationTest {
     void test13_getTransaction_notFound_returns404() {
         ResponseEntity<JsonNode> res = restTemplate.getForEntity("/transactions/txn_nonexistent", JsonNode.class);
         assertThat(res.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
-        assertThat(res.getBody().get("error").asText()).contains("not found");
+        assertThat(body(res).get("error").asText()).contains("not found");
     }
 
     @Test
@@ -443,7 +451,7 @@ public class TravelCommerceIntegrationTest {
                 "/transactions",
                 new HttpEntity<>(seeds.get("flight"), jsonHeaders()),
                 JsonNode.class);
-        String txId = createRes.getBody().get("id").asText();
+        String txId = body(createRes).get("id").asText();
 
         String patchJson = "{\"total\": 299.99, \"occurred_at\": \"2026-03-12T10:00:00Z\"}";
         ResponseEntity<JsonNode> patchRes = restTemplate.exchange(
@@ -453,13 +461,13 @@ public class TravelCommerceIntegrationTest {
                 JsonNode.class);
 
         assertThat(patchRes.getStatusCode()).isEqualTo(HttpStatus.OK);
-        assertThat(patchRes.getBody().get("total").asDouble()).isEqualTo(299.99);
-        assertThat(patchRes.getBody().get("occurred_at").asText()).isEqualTo("2026-03-12T10:00:00Z");
+        assertThat(body(patchRes).get("total").asDouble()).isEqualTo(299.99);
+        assertThat(body(patchRes).get("occurred_at").asText()).isEqualTo("2026-03-12T10:00:00Z");
 
         // Verify GET also returns the updated total
         ResponseEntity<JsonNode> getRes = restTemplate.getForEntity("/transactions/" + txId, JsonNode.class);
         assertThat(getRes.getStatusCode()).isEqualTo(HttpStatus.OK);
-        assertThat(getRes.getBody().get("total").asDouble()).isEqualTo(299.99);
+        assertThat(body(getRes).get("total").asDouble()).isEqualTo(299.99);
     }
 
     @Test
@@ -481,7 +489,7 @@ public class TravelCommerceIntegrationTest {
                 "/transactions",
                 new HttpEntity<>(seeds.get("flight"), jsonHeaders()),
                 JsonNode.class);
-        String txId = createRes.getBody().get("id").asText();
+        String txId = body(createRes).get("id").asText();
 
         // Invalid type
         ResponseEntity<JsonNode> res1 = restTemplate.exchange(
@@ -507,7 +515,7 @@ public class TravelCommerceIntegrationTest {
                 "/transactions",
                 new HttpEntity<>(seeds.get("flight"), jsonHeaders()),
                 JsonNode.class);
-        String txId = createRes.getBody().get("id").asText();
+        String txId = body(createRes).get("id").asText();
 
         ResponseEntity<Void> delRes = restTemplate.exchange(
                 "/transactions/" + txId,
@@ -607,7 +615,7 @@ public class TravelCommerceIntegrationTest {
         assertThat(resNotFound.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
 
         // Duplicate transaction ID in list -> 409
-        String flightId = restTemplate.postForEntity("/transactions", new HttpEntity<>(seeds.get("flight"), jsonHeaders()), JsonNode.class).getBody().get("id").asText();
+        String flightId = body(restTemplate.postForEntity("/transactions", new HttpEntity<>(seeds.get("flight"), jsonHeaders()), JsonNode.class)).get("id").asText();
         ResponseEntity<JsonNode> resDup = restTemplate.postForEntity(
                 "/invoices",
                 new HttpEntity<>(new CreateInvoiceRequest(null, List.of(flightId, flightId)), jsonHeaders()),
@@ -625,8 +633,8 @@ public class TravelCommerceIntegrationTest {
     @Test
     @DisplayName("23. GET /invoices pagination success and error validation")
     void test23_listInvoices_pagination_successAndFailure() {
-        String flightId = restTemplate.postForEntity("/transactions", new HttpEntity<>(seeds.get("flight"), jsonHeaders()), JsonNode.class).getBody().get("id").asText();
-        String hotelId = restTemplate.postForEntity("/transactions", new HttpEntity<>(seeds.get("hotel"), jsonHeaders()), JsonNode.class).getBody().get("id").asText();
+        String flightId = body(restTemplate.postForEntity("/transactions", new HttpEntity<>(seeds.get("flight"), jsonHeaders()), JsonNode.class)).get("id").asText();
+        String hotelId = body(restTemplate.postForEntity("/transactions", new HttpEntity<>(seeds.get("hotel"), jsonHeaders()), JsonNode.class)).get("id").asText();
 
         restTemplate.postForEntity("/invoices", new HttpEntity<>(new CreateInvoiceRequest(flightId, null), jsonHeaders()), JsonNode.class);
         restTemplate.postForEntity("/invoices", new HttpEntity<>(new CreateInvoiceRequest(hotelId, null), jsonHeaders()), JsonNode.class);
@@ -634,12 +642,12 @@ public class TravelCommerceIntegrationTest {
         // Success list
         ResponseEntity<JsonNode> listRes = restTemplate.getForEntity("/invoices", JsonNode.class);
         assertThat(listRes.getStatusCode()).isEqualTo(HttpStatus.OK);
-        assertThat(listRes.getBody().size()).isEqualTo(2);
+        assertThat(body(listRes).size()).isEqualTo(2);
 
         // Limit and offset
         ResponseEntity<JsonNode> pageRes = restTemplate.getForEntity("/invoices?limit=1&offset=1", JsonNode.class);
         assertThat(pageRes.getStatusCode()).isEqualTo(HttpStatus.OK);
-        assertThat(pageRes.getBody().size()).isEqualTo(1);
+        assertThat(body(pageRes).size()).isEqualTo(1);
 
         // limit > 100 -> 400
         assertThat(restTemplate.getForEntity("/invoices?limit=101", JsonNode.class).getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
@@ -654,18 +662,18 @@ public class TravelCommerceIntegrationTest {
     @Test
     @DisplayName("24. PATCH /invoices/{id} updates snapshot lines, recalculates totals, and validates errors")
     void test24_patchInvoice_successAndFailures() throws Exception {
-        String flightId = restTemplate.postForEntity("/transactions", new HttpEntity<>(seeds.get("flight"), jsonHeaders()), JsonNode.class).getBody().get("id").asText();
-        String hotelId = restTemplate.postForEntity("/transactions", new HttpEntity<>(seeds.get("hotel"), jsonHeaders()), JsonNode.class).getBody().get("id").asText();
-        String railId = restTemplate.postForEntity("/transactions", new HttpEntity<>(seeds.get("rail"), jsonHeaders()), JsonNode.class).getBody().get("id").asText();
+        String flightId = body(restTemplate.postForEntity("/transactions", new HttpEntity<>(seeds.get("flight"), jsonHeaders()), JsonNode.class)).get("id").asText();
+        String hotelId = body(restTemplate.postForEntity("/transactions", new HttpEntity<>(seeds.get("hotel"), jsonHeaders()), JsonNode.class)).get("id").asText();
+        String railId = body(restTemplate.postForEntity("/transactions", new HttpEntity<>(seeds.get("rail"), jsonHeaders()), JsonNode.class)).get("id").asText();
 
         // USD transaction for mixed currency test
         String usdPayload = objectMapper.writeValueAsString(seeds.get("trip_fee")).replace("\"EUR\"", "\"USD\"").replace("fee-trip-001", "fee-trip-usd");
-        String usdId = restTemplate.postForEntity("/transactions", new HttpEntity<>(usdPayload, jsonHeaders()), JsonNode.class).getBody().get("id").asText();
+        String usdId = body(restTemplate.postForEntity("/transactions", new HttpEntity<>(usdPayload, jsonHeaders()), JsonNode.class)).get("id").asText();
 
         // Create invoice with [flightId]
         ResponseEntity<JsonNode> invRes = restTemplate.postForEntity("/invoices", new HttpEntity<>(new CreateInvoiceRequest(flightId, null), jsonHeaders()), JsonNode.class);
-        String invId = invRes.getBody().get("id").asText();
-        assertThat(invRes.getBody().get("totals").get("grand_total").asDouble()).isEqualTo(220.00);
+        String invId = body(invRes).get("id").asText();
+        assertThat(body(invRes).get("totals").get("grand_total").asDouble()).isEqualTo(220.00);
 
         // PATCH invoice to [hotelId, railId]
         CreateInvoiceRequest patchReq = new CreateInvoiceRequest(null, List.of(hotelId, railId));
@@ -676,8 +684,8 @@ public class TravelCommerceIntegrationTest {
                 JsonNode.class);
         assertThat(patchRes.getStatusCode()).isEqualTo(HttpStatus.OK);
         // Hotel 331.70 + Rail 94.00 = 425.70
-        assertThat(patchRes.getBody().get("totals").get("grand_total").asDouble()).isEqualTo(425.70);
-        assertThat(patchRes.getBody().get("transactions").size()).isEqualTo(2);
+        assertThat(body(patchRes).get("totals").get("grand_total").asDouble()).isEqualTo(425.70);
+        assertThat(body(patchRes).get("transactions").size()).isEqualTo(2);
 
         // Failure: invoice not found -> 404
         assertThat(restTemplate.exchange("/invoices/inv_nonexistent", HttpMethod.PATCH, new HttpEntity<>(patchReq, jsonHeaders()), JsonNode.class).getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
@@ -709,11 +717,11 @@ public class TravelCommerceIntegrationTest {
     @Test
     @DisplayName("26. POST /invoices with single transaction_id field succeeds")
     void test26_postInvoice_withSingleTransactionId() {
-        String flightId = restTemplate.postForEntity("/transactions", new HttpEntity<>(seeds.get("flight"), jsonHeaders()), JsonNode.class).getBody().get("id").asText();
+        String flightId = body(restTemplate.postForEntity("/transactions", new HttpEntity<>(seeds.get("flight"), jsonHeaders()), JsonNode.class)).get("id").asText();
         CreateInvoiceRequest singleReq = new CreateInvoiceRequest(flightId, null);
         ResponseEntity<JsonNode> res = restTemplate.postForEntity("/invoices", new HttpEntity<>(singleReq, jsonHeaders()), JsonNode.class);
         assertThat(res.getStatusCode()).isEqualTo(HttpStatus.CREATED);
-        assertThat(res.getBody().get("transactions").size()).isEqualTo(1);
-        assertThat(res.getBody().get("totals").get("grand_total").asDouble()).isEqualTo(220.00);
+        assertThat(body(res).get("transactions").size()).isEqualTo(1);
+        assertThat(body(res).get("totals").get("grand_total").asDouble()).isEqualTo(220.00);
     }
 }
