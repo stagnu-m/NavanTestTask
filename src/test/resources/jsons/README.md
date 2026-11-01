@@ -18,35 +18,35 @@ curl -i http://localhost:8080/health
 ```bash
 curl -i -X POST http://localhost:8080/transactions \
   -H "Content-Type: application/json" \
-  -d @jsons/post_transaction_flight.json
+  -d @src/test/resources/jsons/post_transaction_flight.json
 ```
 
 ### Create Hotel Transaction (201 Created)
 ```bash
 curl -i -X POST http://localhost:8080/transactions \
   -H "Content-Type: application/json" \
-  -d @jsons/post_transaction_hotel.json
+  -d @src/test/resources/jsons/post_transaction_hotel.json
 ```
 
 ### Create Rail Transaction (201 Created)
 ```bash
 curl -i -X POST http://localhost:8080/transactions \
   -H "Content-Type: application/json" \
-  -d @jsons/post_transaction_rail.json
+  -d @src/test/resources/jsons/post_transaction_rail.json
 ```
 
 ### Create Trip Fee Transaction (201 Created)
 ```bash
 curl -i -X POST http://localhost:8080/transactions \
   -H "Content-Type: application/json" \
-  -d @jsons/post_transaction_trip_fee.json
+  -d @src/test/resources/jsons/post_transaction_trip_fee.json
 ```
 
 ### Create Agent Call Fee Transaction (201 Created)
 ```bash
 curl -i -X POST http://localhost:8080/transactions \
   -H "Content-Type: application/json" \
-  -d @jsons/post_transaction_agent_call_fee.json
+  -d @src/test/resources/jsons/post_transaction_agent_call_fee.json
 ```
 
 ### Duplicate External ID (409 Conflict)
@@ -54,35 +54,35 @@ Posting with the same `external_id` returns **409 Conflict** along with the exis
 ```bash
 curl -i -X POST http://localhost:8080/transactions \
   -H "Content-Type: application/json" \
-  -d @jsons/post_transaction_duplicate.json
+  -d @src/test/resources/jsons/post_transaction_duplicate.json
 ```
 
 ### Unknown Transaction Type (400 Bad Request)
 ```bash
 curl -i -X POST http://localhost:8080/transactions \
   -H "Content-Type: application/json" \
-  -d @jsons/post_transaction_invalid_type.json
+  -d @src/test/resources/jsons/post_transaction_invalid_type.json
 ```
 
 ### Unknown Navan Fee fee_kind (400 Bad Request)
 ```bash
 curl -i -X POST http://localhost:8080/transactions \
   -H "Content-Type: application/json" \
-  -d @jsons/post_transaction_invalid_fee_kind.json
+  -d @src/test/resources/jsons/post_transaction_invalid_fee_kind.json
 ```
 
 ### Empty Metadata `{}` (400 Bad Request)
 ```bash
 curl -i -X POST http://localhost:8080/transactions \
   -H "Content-Type: application/json" \
-  -d @jsons/post_transaction_empty_metadata.json
+  -d @src/test/resources/jsons/post_transaction_empty_metadata.json
 ```
 
 ### Cross-Type Metadata / Storing Flight as Hotel Blob (400 Bad Request)
 ```bash
 curl -i -X POST http://localhost:8080/transactions \
   -H "Content-Type: application/json" \
-  -d @jsons/post_transaction_flight_as_hotel_blob.json
+  -d @src/test/resources/jsons/post_transaction_flight_as_hotel_blob.json
 ```
 
 ### Get Transaction by ID (200 OK / 404 Not Found)
@@ -117,12 +117,12 @@ curl -i "http://localhost:8080/transactions?offset=-1"
 # Update unbilled transaction
 curl -i -X PATCH http://localhost:8080/transactions/<TXN_ID> \
   -H "Content-Type: application/json" \
-  -d @jsons/patch_transaction.json
+  -d @src/test/resources/jsons/patch_transaction.json
 
 # Non-existent ID -> 404 Not Found
 curl -i -X PATCH http://localhost:8080/transactions/txn_nonexistent \
   -H "Content-Type: application/json" \
-  -d @jsons/patch_transaction.json
+  -d @src/test/resources/jsons/patch_transaction.json
 
 # If transaction is already invoiced -> 409 Conflict (Invoiced Freeze)
 ```
@@ -143,7 +143,7 @@ curl -i -X DELETE http://localhost:8080/transactions/txn_nonexistent
 ## 3. Invoices API (`/invoices`)
 
 ### Create Single-Transaction Invoice (201 Created)
-Edit `jsons/post_invoice_single.json` with your real `<TXN_ID>`, then:
+Edit `src/test/resources/jsons/post_invoice_single.json` with your real `<TXN_ID>`, then:
 ```bash
 curl -i -X POST http://localhost:8080/invoices \
   -H "Content-Type: application/json" \
@@ -161,7 +161,7 @@ curl -i -X POST http://localhost:8080/invoices \
 ```bash
 curl -i -X POST http://localhost:8080/invoices \
   -H "Content-Type: application/json" \
-  -d @jsons/post_invoice_empty.json
+  -d @src/test/resources/jsons/post_invoice_empty.json
 ```
 
 ### Create Invoice - Duplicate Transaction ID in List (409 Conflict)

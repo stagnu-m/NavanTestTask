@@ -7,6 +7,7 @@ import com.navan.travel.dto.*;
 import com.navan.travel.exception.BadRequestException;
 import com.navan.travel.exception.ConflictException;
 import com.navan.travel.exception.NotFoundException;
+import com.navan.travel.exception.TransactionNotFoundException;
 import com.navan.travel.model.TransactionType;
 import com.navan.travel.model.entity.*;
 import com.navan.travel.repository.InvoiceLineRepository;
@@ -112,13 +113,13 @@ public class TransactionService {
             });
         } catch (DataIntegrityViolationException | ConcurrencyFailureException ex) {
             // Concurrent duplicate create race: retry lookup to return winner ID
-            for (int i = 0; i < 10; i++) {
+            for (int i = 0; i < 60; i++) {
                 Optional<TransactionEntity> raceExisting = transactionRepository.findByExternalId(request.externalId());
                 if (raceExisting.isPresent()) {
                     throw new ConflictException("Transaction with external_id already exists", raceExisting.get().getId());
                 }
                 try {
-                    Thread.sleep(20);
+                    Thread.sleep(50);
                 } catch (InterruptedException ie) {
                     Thread.currentThread().interrupt();
                     break;
@@ -131,7 +132,7 @@ public class TransactionService {
     @Transactional(readOnly = true)
     public TransactionResponse getTransaction(String id) {
         TransactionEntity entity = transactionRepository.findById(id)
-                .orElseThrow(() -> new NotFoundException("Transaction not found: " + id));
+                .orElseThrow(() -> new TransactionNotFoundException(id));
         return toResponse(entity);
     }
 
@@ -147,7 +148,7 @@ public class TransactionService {
     @Transactional
     public TransactionResponse updateTransaction(String id, TransactionRequest request) {
         TransactionEntity entity = transactionRepository.findById(id)
-                .orElseThrow(() -> new NotFoundException("Transaction not found: " + id));
+                .orElseThrow(() -> new TransactionNotFoundException(id));
 
         // Invoiced freeze rule: cannot modify transaction if on any invoice
         if (invoiceLineRepository.existsByTransactionId(id)) {
@@ -199,7 +200,7 @@ public class TransactionService {
     @Transactional
     public void deleteTransaction(String id) {
         TransactionEntity entity = transactionRepository.findById(id)
-                .orElseThrow(() -> new NotFoundException("Transaction not found: " + id));
+                .orElseThrow(() -> new TransactionNotFoundException(id));
 
         // Invoiced freeze rule: cannot delete transaction if on any invoice
         if (invoiceLineRepository.existsByTransactionId(id)) {

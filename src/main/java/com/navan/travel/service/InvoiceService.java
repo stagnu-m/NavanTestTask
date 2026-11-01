@@ -5,7 +5,9 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.navan.travel.dto.*;
 import com.navan.travel.exception.ConflictException;
+import com.navan.travel.exception.InvoiceNotFoundException;
 import com.navan.travel.exception.NotFoundException;
+import com.navan.travel.exception.TransactionNotFoundException;
 import com.navan.travel.model.TransactionType;
 import com.navan.travel.model.entity.InvoiceEntity;
 import com.navan.travel.model.entity.InvoiceLineEntity;
@@ -73,7 +75,7 @@ public class InvoiceService {
     @Transactional(readOnly = true)
     public InvoiceResponse getInvoice(String id) {
         InvoiceEntity invoice = invoiceRepository.findById(id)
-                .orElseThrow(() -> new NotFoundException("Invoice not found: " + id));
+                .orElseThrow(() -> new InvoiceNotFoundException(id));
         return toInvoiceResponse(invoice);
     }
 
@@ -89,7 +91,7 @@ public class InvoiceService {
     @Transactional
     public InvoiceResponse updateInvoice(String id, CreateInvoiceRequest request) {
         InvoiceEntity invoice = invoiceRepository.findById(id)
-                .orElseThrow(() -> new NotFoundException("Invoice not found: " + id));
+                .orElseThrow(() -> new InvoiceNotFoundException(id));
 
         List<String> txIds = helperService.validateTransactionIds(request.resolvedTransactionIds());
         List<TransactionEntity> currentTransactions = loadTransactions(txIds);
@@ -106,7 +108,7 @@ public class InvoiceService {
     @Transactional
     public void deleteInvoice(String id) {
         InvoiceEntity invoice = invoiceRepository.findById(id)
-                .orElseThrow(() -> new NotFoundException("Invoice not found: " + id));
+                .orElseThrow(() -> new InvoiceNotFoundException(id));
 
         // Delete invoice and snapshot lines (transactions are left intact)
         invoiceRepository.delete(invoice);
@@ -133,7 +135,7 @@ public class InvoiceService {
         for (String id : ids) {
             TransactionEntity tx = byId.get(id);
             if (tx == null) {
-                throw new NotFoundException("Transaction not found: " + id);
+                throw new TransactionNotFoundException(id);
             }
             result.add(tx);
         }

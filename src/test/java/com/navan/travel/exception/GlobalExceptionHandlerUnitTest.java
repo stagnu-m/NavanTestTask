@@ -44,6 +44,30 @@ public class GlobalExceptionHandlerUnitTest {
     }
 
     @Test
+    void testSpecificNotFoundExceptions() {
+        TransactionNotFoundException txEx = new TransactionNotFoundException("txn_123");
+        assertThat(txEx.getMessage()).isEqualTo("Transaction not found: txn_123");
+        assertThat(txEx).isInstanceOf(NotFoundException.class);
+        ResponseEntity<ErrorDto> txRes = handler.handleNotFound(txEx);
+        assertThat(txRes.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+        assertThat(txRes.getBody().error()).isEqualTo("Transaction not found: txn_123");
+
+        InvoiceNotFoundException invEx = new InvoiceNotFoundException("inv_456");
+        assertThat(invEx.getMessage()).isEqualTo("Invoice not found: inv_456");
+        assertThat(invEx).isInstanceOf(NotFoundException.class);
+        ResponseEntity<ErrorDto> invRes = handler.handleNotFound(invEx);
+        assertThat(invRes.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+        assertThat(invRes.getBody().error()).isEqualTo("Invoice not found: inv_456");
+
+        FlightNotFoundException flEx = new FlightNotFoundException("fl_789");
+        assertThat(flEx.getMessage()).isEqualTo("Flight not found: fl_789");
+        assertThat(flEx).isInstanceOf(NotFoundException.class);
+        ResponseEntity<ErrorDto> flRes = handler.handleNotFound(flEx);
+        assertThat(flRes.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+        assertThat(flRes.getBody().error()).isEqualTo("Flight not found: fl_789");
+    }
+
+    @Test
     void testHandleConflict_WithAndWithoutId() {
         ResponseEntity<ErrorDto> res1 = handler.handleConflict(new ConflictException("Conflict occurred", "id_123"));
         assertThat(res1.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);

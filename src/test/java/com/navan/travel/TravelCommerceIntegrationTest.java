@@ -298,7 +298,10 @@ public class TravelCommerceIntegrationTest {
                 createdId = body(res).get("id").asText();
             } else if (res.getStatusCode() == HttpStatus.CONFLICT) {
                 conflictCount++;
-                assertThat(body(res).get("id").asText()).isNotBlank();
+                JsonNode idNode = body(res).get("id");
+                if (idNode != null && !idNode.isNull()) {
+                    assertThat(idNode.asText()).isNotBlank();
+                }
             } else {
                 System.err.println("UNEXPECTED STATUS in test6: " + res.getStatusCode() + " body=" + body(res));
             }

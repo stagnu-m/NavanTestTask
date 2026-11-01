@@ -46,16 +46,16 @@ The repository includes a GitHub Actions CI pipeline in [`.github/workflows/ci.y
 - **Step Summary:** Generates an inline Markdown summary in the GitHub Actions run overview with both the unit/integration test results suite breakdown and the 6-metric JaCoCo coverage table.
 - **Artifacts:** Uploads both JaCoCo HTML/XML reports and JUnit test results as downloadable job artifacts (14-day retention).
 
-### 4. Manual Testing via `requests.http` & `jsons/` Directory
+### 4. Manual Testing via `requests.http` & `src/test/resources/jsons/` Directory
 - **VS Code REST Client / IntelliJ HTTP Client:** See [`requests.http`](requests.http) for runnable, click-to-execute requests covering the entire lifecycle: create -> duplicate conflict -> invoice creation -> freeze rule 409 -> pagination.
-- **Pre-built Payloads:** The [`jsons/`](jsons) directory contains pre-built, ready-to-use JSON payloads for manually verifying all endpoints and failure scenarios:
+- **Pre-built Payloads:** The [`src/test/resources/jsons/`](src/test/resources/jsons) directory contains pre-built, ready-to-use JSON payloads for manually verifying all endpoints and failure scenarios:
   - **Valid Payloads:** `post_transaction_flight.json`, `post_transaction_hotel.json`, `post_transaction_rail.json`, `post_transaction_trip_fee.json`, `post_transaction_agent_call_fee.json`
   - **Updates:** `patch_transaction.json`, `patch_invoice.json`
   - **Invoices:** `post_invoice_single.json`, `post_invoice_trip.json`
   - **Conflict Scenarios (409):** `post_transaction_duplicate.json`, `post_invoice_mixed_currency.json`, `post_invoice_duplicate_id.json`
   - **Validation Failures (400):** `post_transaction_invalid_type.json`, `post_transaction_invalid_fee_kind.json`, `post_transaction_empty_metadata.json`, `post_transaction_flight_as_hotel_blob.json`, `post_invoice_empty.json`
 
-See [`jsons/README.md`](jsons/README.md) for copy-paste `curl` commands for all payloads.
+See [`src/test/resources/jsons/README.md`](src/test/resources/jsons/README.md) for copy-paste `curl` commands for all payloads.
 For key design trade-offs and decisions, see the [Architecture Decision Records (ADRs)](docs/adr).
 
 ---
@@ -147,35 +147,35 @@ curl -i http://localhost:8080/health
 ```bash
 curl -i -X POST http://localhost:8080/transactions \
   -H "Content-Type: application/json" \
-  -d @jsons/post_transaction_flight.json
+  -d @src/test/resources/jsons/post_transaction_flight.json
 ```
 
 #### Hotel (Using Payload File)
 ```bash
 curl -i -X POST http://localhost:8080/transactions \
   -H "Content-Type: application/json" \
-  -d @jsons/post_transaction_hotel.json
+  -d @src/test/resources/jsons/post_transaction_hotel.json
 ```
 
 #### Rail (Using Payload File)
 ```bash
 curl -i -X POST http://localhost:8080/transactions \
   -H "Content-Type: application/json" \
-  -d @jsons/post_transaction_rail.json
+  -d @src/test/resources/jsons/post_transaction_rail.json
 ```
 
 #### Navan Fee - Trip Fee
 ```bash
 curl -i -X POST http://localhost:8080/transactions \
   -H "Content-Type: application/json" \
-  -d @jsons/post_transaction_trip_fee.json
+  -d @src/test/resources/jsons/post_transaction_trip_fee.json
 ```
 
 #### Navan Fee - Agent Call Fee
 ```bash
 curl -i -X POST http://localhost:8080/transactions \
   -H "Content-Type: application/json" \
-  -d @jsons/post_transaction_agent_call_fee.json
+  -d @src/test/resources/jsons/post_transaction_agent_call_fee.json
 ```
 
 ---
@@ -186,7 +186,7 @@ Posting an existing `external_id` returns **409 Conflict** with the existing ser
 ```bash
 curl -i -X POST http://localhost:8080/transactions \
   -H "Content-Type: application/json" \
-  -d @jsons/post_transaction_duplicate.json
+  -d @src/test/resources/jsons/post_transaction_duplicate.json
 ```
 **Response:**
 ```json
@@ -232,7 +232,7 @@ curl -i -X GET "http://localhost:8080/transactions?limit=1000"
 ```bash
 curl -i -X PATCH http://localhost:8080/transactions/{transaction_id} \
   -H "Content-Type: application/json" \
-  -d @jsons/patch_transaction.json
+  -d @src/test/resources/jsons/patch_transaction.json
 ```
 
 #### Update/Delete Transaction when Invoiced (Returns 409 Conflict)
