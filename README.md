@@ -31,7 +31,7 @@ Executes the comprehensive automated test suite covering every endpoint, happy p
 The repository includes a GitHub Actions CI pipeline in [`.github/workflows/ci.yml`](file:///Users/miha/Projects/NavanTestTask/.github/workflows/ci.yml) that triggers automatically on every `push` and `pull_request` to `main`:
 - **Automated Execution:** Runs `./gradlew test jacocoTestReport jacocoTestCoverageVerification` on Ubuntu with Temurin JDK 21.
 - **Coverage Gate:** Build fails automatically if code coverage drops below the 80% threshold.
-- **Step Summary:** Generates an inline Markdown coverage table in the GitHub Actions run summary.
+- **Step Summary:** Generates an inline Markdown summary in the GitHub Actions run overview with both the unit/integration test results suite breakdown and the 6-metric JaCoCo coverage table.
 - **Artifacts:** Uploads both JaCoCo HTML/XML reports and JUnit test results as downloadable job artifacts (14-day retention).
 
 ### 4. Manual Testing via `jsons/` Directory

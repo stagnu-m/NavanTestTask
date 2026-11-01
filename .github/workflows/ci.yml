@@ -34,7 +34,7 @@ jobs:
       - name: Run Tests & JaCoCo Coverage Verification
         run: ./gradlew test jacocoTestReport jacocoTestCoverageVerification --info
 
-      - name: Generate Coverage Summary in GitHub Actions
+      - name: Generate Test & Coverage Summary in GitHub Actions
         if: always()
         run: python3 .github/scripts/coverage_summary.py
 

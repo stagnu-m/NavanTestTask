@@ -182,7 +182,7 @@ The service utilizes a GitHub Actions workflow defined in `.github/workflows/ci.
 - **Automated Triggers:** Executed on `push` to `main`, `pull_request` to `main`, and manual `workflow_dispatch`.
 - **Environment:** Ubuntu runner with Eclipse Temurin JDK 21 and official Gradle setup action with automated dependency and daemon caching.
 - **Coverage Gate:** Any pull request or commit that causes line coverage to drop below 80% automatically fails `jacocoTestCoverageVerification`, blocking merge.
-- **Step Summary & Artifacts:** A custom Python reporting script parses `jacocoTestReport.xml` to publish an executive coverage table to `$GITHUB_STEP_SUMMARY`, while full JaCoCo HTML/XML reports and JUnit test results are archived as workflow artifacts.
+- **Step Summary & Artifacts:** A custom Python reporting script parses JUnit test results and `jacocoTestReport.xml` to publish an executive test summary (suite-by-suite breakdown of unit and integration tests) and the 6-metric JaCoCo coverage table to `$GITHUB_STEP_SUMMARY`, while full JaCoCo HTML/XML reports and JUnit test results are archived as workflow artifacts.
 
 ---
 
