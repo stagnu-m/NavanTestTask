@@ -162,16 +162,20 @@ The service is tested with **32 automated tests** across integration and unit te
 - **`TravelCommerceApplicationTest` (1 test):** Validates Spring application context bootstrapping and main execution.
 
 ### JaCoCo Code Coverage
-A strict JaCoCo coverage verification rule is enforced in `build.gradle` (`minimum = 0.80`):
+A strict JaCoCo coverage verification rule is enforced in `build.gradle` across all metrics (`minimum = 0.80`):
 
 ```bash
 ./gradlew test jacocoTestReport jacocoTestCoverageVerification
 ```
 
-- **Instruction Coverage:** **89.26%** (`3,201 / 3,586`)
-- **Line Coverage:** **87.91%** (`756 / 860`)
+- **Instruction Coverage:** **91.85%** (`3,347 / 3,644`)
+- **Line Coverage:** **89.43%** (`778 / 870`)
+- **Branch Coverage:** **95.82%** (`252 / 263`)
+- **Complexity Coverage:** **87.21%** (`382 / 438`)
+- **Method Coverage:** **84.77%** (`256 / 302`)
+- **Class Coverage:** **100.00%** (`45 / 45`)
 - **Controllers Coverage:** **100.0%** (`TransactionController`, `InvoiceController`, `HealthController`)
-- **Services Coverage:** **91.6% - 97.3%** (`TransactionService`, `InvoiceService`)
+- **Services Coverage:** **93.5% - 97.3%** (`TransactionService`, `InvoiceService`)
 
 ### Continuous Integration (GitHub Actions)
 The service utilizes a GitHub Actions workflow defined in `.github/workflows/ci.yml`:

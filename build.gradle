@@ -49,7 +49,29 @@ jacocoTestReport {
 jacocoTestCoverageVerification {
     violationRules {
         rule {
+            element = 'BUNDLE'
             limit {
+                counter = 'INSTRUCTION'
+                minimum = 0.80
+            }
+            limit {
+                counter = 'LINE'
+                minimum = 0.80
+            }
+            limit {
+                counter = 'BRANCH'
+                minimum = 0.80
+            }
+            limit {
+                counter = 'COMPLEXITY'
+                minimum = 0.80
+            }
+            limit {
+                counter = 'METHOD'
+                minimum = 0.80
+            }
+            limit {
+                counter = 'CLASS'
                 minimum = 0.80
             }
         }

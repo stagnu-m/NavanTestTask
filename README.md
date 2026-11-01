@@ -20,9 +20,9 @@ The application will start on `http://localhost:8080` backed by the SQLite datab
 ```bash
 ./gradlew test jacocoTestReport
 ```
-Executes the comprehensive **32-test suite** covering every endpoint, happy path, failure scenario, concurrency race, and freeze rule.
-- **Coverage report:** `build/reports/jacoco/test/html/index.html` (Overall: **87.91% line coverage**, **89.26% instruction coverage**).
-- **Enforce 80% rule:**
+Executes the comprehensive automated test suite covering every endpoint, happy path, failure scenario, concurrency race, and freeze rule.
+- **Coverage report:** `build/reports/jacoco/test/html/index.html` (All metrics >= 80%: **89.43% line**, **91.85% instruction**, **95.82% branch**, **87.21% complexity**, **84.77% method**, **100% class**).
+- **Enforce >= 80% rule across all metrics:**
 ```bash
 ./gradlew jacocoTestCoverageVerification
 ```

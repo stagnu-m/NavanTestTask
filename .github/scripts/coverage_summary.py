@@ -32,12 +32,12 @@ summary_md = f"""## 📊 JaCoCo Code Coverage Report
 |---|---|---|---|---|
 | **Instruction** | {instruction[0]:,} | {instruction[1]:,} | **{instruction[2]:.2f}%** | {'✅ Pass' if instruction[2] >= 80 else '❌ Fail'} |
 | **Line** | {line[0]:,} | {line[1]:,} | **{line[2]:.2f}%** | {'✅ Pass' if line[2] >= 80 else '❌ Fail'} |
-| **Branch** | {branch[0]:,} | {branch[1]:,} | **{branch[2]:.2f}%** | {'✅' if branch[2] >= 80 else '⚠️'} |
-| **Complexity** | {complexity[0]:,} | {complexity[1]:,} | **{complexity[2]:.2f}%** | - |
-| **Method** | {method[0]:,} | {method[1]:,} | **{method[2]:.2f}%** | {'✅' if method[2] >= 80 else '⚠️'} |
-| **Class** | {cls_stat[0]:,} | {cls_stat[1]:,} | **{cls_stat[2]:.2f}%** | ✅ 100% |
+| **Branch** | {branch[0]:,} | {branch[1]:,} | **{branch[2]:.2f}%** | {'✅ Pass' if branch[2] >= 80 else '❌ Fail'} |
+| **Complexity** | {complexity[0]:,} | {complexity[1]:,} | **{complexity[2]:.2f}%** | {'✅ Pass' if complexity[2] >= 80 else '❌ Fail'} |
+| **Method** | {method[0]:,} | {method[1]:,} | **{method[2]:.2f}%** | {'✅ Pass' if method[2] >= 80 else '❌ Fail'} |
+| **Class** | {cls_stat[0]:,} | {cls_stat[1]:,} | **{cls_stat[2]:.2f}%** | {'✅ Pass' if cls_stat[2] >= 80 else '❌ Fail'} |
 
-> **Coverage Gate:** Verified against `minimum = 0.80` via `jacocoTestCoverageVerification`.
+> **Coverage Gate:** Verified against `minimum = 0.80` across all metrics via `jacocoTestCoverageVerification`.
 """
 
 step_summary = os.environ.get('GITHUB_STEP_SUMMARY')

@@ -25,5 +25,8 @@ public class TransactionTypeConverterTest {
         assertThat(converter.convertToEntityAttribute("navan_fee")).isEqualTo(TransactionType.NAVAN_FEE);
         assertThat(converter.convertToEntityAttribute("spaceship")).isEqualTo(TransactionType.UNSUPPORTED);
         assertThat(converter.convertToEntityAttribute(null)).isNull();
+
+        assertThat(TransactionType.fromString(null)).isEqualTo(TransactionType.UNSUPPORTED);
+        assertThat(TransactionType.fromString("flight")).isEqualTo(TransactionType.FLIGHT);
     }
 }
