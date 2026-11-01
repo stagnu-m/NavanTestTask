@@ -1,6 +1,6 @@
 # System Architecture: Navan Travel Commerce & Invoice Service
 
-This document details the architectural decisions, database models, concurrency controls, snapshot guarantees, and high-volume scaling characteristics of the service.
+This document details the architectural decisions, database models, concurrency controls, validation pipelines, snapshot guarantees, test coverage, and high-volume scaling characteristics of the service.
 
 ---
 
@@ -24,43 +24,160 @@ erDiagram
     INVOICE_LINES }o--|| TRANSACTIONS : "references"
 ```
 
+### Table Breakdown
 - **Taxes vs Fees Separation:** Government/VAT charges live in `transaction_tax_lines` (`name`, optional `rate`, `amount`), while carrier/merchant charges live in `transaction_fee_lines` (`name`, `amount`). They are never merged into a single bucket.
-- **Strongly Typed `TransactionType` Enum:** Transaction types are defined via a type-safe `TransactionType` enum (`FLIGHT`, `HOTEL`, `RAIL`, `NAVAN_FEE`, and `UNSUPPORTED`). Jackson's `@JsonCreator` parses incoming strings and maps unrecognized values to `UNSUPPORTED`, which is strictly rejected with `400 Bad Request`. A custom JPA `TransactionTypeConverter` stores the canonical lowercase string in SQLite, ensuring relational schema cleanlines and backward compatibility.
-- **Flight:** `flight_metadata` (`origin`, `destination`, `fare`) joined to ordered `flight_coupons` (`flight_number`, `carrier`, `from_location`, `to_location`, `departure`, `arrival`, `coupon_order`).
-- **Hotel:** `hotel_metadata` (`name`, `street`, `city`, `country`, `check_in`, `check_out`, `nights`, `room_rate_per_night`) joined to `hotel_extras` (`name`, `amount`).
-- **Rail:** `rail_metadata` joined to ordered `rail_legs` (`origin`, `destination`, `departure`, `arrival`, `train_number`, `travel_class`, `leg_order`).
-- **Navan Fee:** `navan_fee_metadata` (`fee_kind`: restricted to `trip_fee` and `agent_call_fee`, `description`, `related_external_id`).
-- **Money Scale:** All monetary fields use `BigDecimal` with a fixed scale of 2 decimal places and `RoundingMode.HALF_UP`. Floating point IEEE 754 arithmetic is strictly prohibited.
+- **Strongly Typed `TransactionType` Enum:** Transaction types are defined via a type-safe `TransactionType` enum (`FLIGHT`, `HOTEL`, `RAIL`, `NAVAN_FEE`, and `UNSUPPORTED`).
+  - Jackson's `@JsonCreator` parses incoming strings case-insensitively and maps unrecognized values to `UNSUPPORTED`, which is strictly rejected with `400 Bad Request`.
+  - A custom JPA `TransactionTypeConverter` stores the canonical lowercase string in SQLite, ensuring relational schema cleanliness and backward compatibility.
+- **Flight (`transaction_flight_metadata`):** Stores `origin`, `destination`, `fare NUMERIC(15, 2)` joined to ordered `transaction_flight_coupons` (`flight_number`, `carrier`, `from_location`, `to_location`, `departure`, `arrival`, `coupon_order`).
+- **Hotel (`transaction_hotel_metadata`):** Stores `name`, `street`, `city`, `country`, `check_in`, `check_out`, `nights`, `room_rate_per_night NUMERIC(15, 2)` joined to `transaction_hotel_extras` (`name`, `amount NUMERIC(15, 2)`).
+- **Rail (`transaction_rail_metadata`):** Joined to ordered `transaction_rail_legs` (`origin`, `destination`, `departure`, `arrival`, `train_number`, `travel_class`, `leg_order`).
+- **Navan Fee (`transaction_navan_fee_metadata`):** Stores `fee_kind` (strictly validated to `trip_fee` or `agent_call_fee`), `description`, and `related_external_id`.
+- **Money Scale:** All monetary fields use `BigDecimal` with a fixed scale of **2 decimal places** and **`RoundingMode.HALF_UP`**. Floating-point IEEE 754 arithmetic is strictly prohibited across all calculation paths.
 
 ---
 
-## 2. Identity, Uniqueness & Concurrency
+## 2. Validation Pipeline & Metadata Integrity
 
-- **Database-Enforced Uniqueness:** The `transactions` table enforces a strict database `UNIQUE` constraint on `external_id`.
-- **Sequential Duplicates:** A second `POST /transactions` with the same `external_id` queries the unique index, rejects the write, and returns **`409 Conflict`** with the existing record's `id`.
+Before any database entity is created or modified, requests pass through a strict validation pipeline in `TransactionService`:
+
+```mermaid
+flowchart TD
+    Req["Incoming TransactionRequest"] --> VType{"Known Type?"}
+    VType -- "No / UNSUPPORTED" --> EType["400 Bad Request: Unknown transaction type"]
+    VType -- "Yes" --> VMetaEmpty{"Metadata is non-empty object?"}
+    VMetaEmpty -- "No / {} / null" --> EMetaEmpty["400 Bad Request: Metadata must be a non-empty object"]
+    VMetaEmpty -- "Yes" --> VMetaStruct{"Metadata matches Type schema?"}
+    VMetaStruct -- "Mismatch / Missing required fields" --> EMetaStruct["400 Bad Request: Invalid metadata structure"]
+    VMetaStruct -- "Type is navan_fee" --> VFeeKind{"fee_kind in whitelist?"}
+    VFeeKind -- "No" --> EFeeKind["400 Bad Request: Unknown navan_fee fee_kind"]
+    VFeeKind -- "Yes" --> VDate{"Valid ISO-8601 timestamp?"}
+    VMetaStruct -- "Other types" --> VDate
+    VDate -- "No" --> EDate["400 Bad Request: Invalid timestamp"]
+    VDate -- "Yes" --> Persist["@Transactional Atomic Persistence"]
+```
+
+### Key Validation Policies
+1. **No Empty Dummy Metadata:** Requests with `"metadata": {}` or `null` fail immediately with `400 Bad Request`.
+2. **No Cross-Type Storage:** Submitting a flight payload with hotel metadata (or rail with flight metadata) is caught by type-specific DTO deserialization and validation:
+   - Flight requires `origin`, `destination`, `fare`, and a non-empty list of `coupons`.
+   - Hotel requires `name`, `address` (with `street`, `city`, `country`), `check_in`, `check_out`, `nights`, and `room_rate_per_night`.
+   - Rail requires a non-empty list of `legs` with valid departure/arrival details.
+3. **Navan Fee Whitelist:** `fee_kind` must match either `trip_fee` or `agent_call_fee`. Any unrecognized value (e.g. `vip_lounge_fee`) returns `400 Bad Request`.
+4. **Atomic Persistence:** Persistence of the transaction header, tax lines, fee lines, and metadata child tables occurs in a single Spring `@Transactional` block. If any validation or database operation fails, the transaction rolls back completely, ensuring no partial or corrupted records exist.
+
+---
+
+## 3. Identity, Uniqueness & Concurrency Controls
+
+```mermaid
+sequenceDiagram
+    participant ClientA as Client A
+    participant ClientB as Client B
+    participant API as Transaction API
+    participant DB as SQLite (data/travel_invoice.db)
+
+    Note over ClientA,DB: Concurrent POST with same external_id
+    par Overlapping Requests
+        ClientA->>API: POST /transactions (ext_id: flight-001)
+        ClientB->>API: POST /transactions (ext_id: flight-001)
+    end
+    Note over API: Synchronized write boundary
+    API->>DB: Check & Insert Transaction A
+    DB-->>API: 201 Created (id: txn_abc123)
+    API-->>ClientA: 201 Created (id: txn_abc123)
+    
+    API->>DB: Check external_id for Transaction B
+    DB-->>API: Unique constraint detected / record exists
+    API-->>ClientB: 409 Conflict (id: txn_abc123)
+    Note over DB: Exactly 1 row stored in database
+```
+
+- **Database-Enforced Uniqueness:** The `transactions` table enforces a database-level `UNIQUE` index on `external_id`.
+- **Sequential Duplicates:** Re-posting a known `external_id` queries the unique index, rejects the insert, and returns **`409 Conflict`** containing the existing record's server ID. Exactly one row is stored.
 - **Concurrent Overlapping Creates:** When multiple clients post identical `external_id` payloads in parallel:
-  - Application writes are synchronized for SQLite's single-writer architecture, while the database-level `UNIQUE` index provides the authoritative safety net.
-  - Exactly one thread succeeds with `201 Created`.
-  - Competing threads catch the constraint / existing entry and return `409 Conflict` with the created transaction `id`. Exactly one database row is persisted.
+  - Application writes are synchronized at the service level, while the database-level `UNIQUE` index acts as the authoritative safety net.
+  - Exactly one thread creates the record (`201 Created`).
+  - Competing threads catch the constraint or existing record and return **`409 Conflict`** with the created transaction's ID.
+  - Verified with 10 concurrent threads in `TravelCommerceIntegrationTest.test6_concurrentDuplicateCreate_leavesOneRow`.
 
 ---
 
-## 3. Immutable Invoice Snapshots & Freeze Protection
+## 4. Immutable Invoice Snapshots & Freeze Protection
 
 An invoice is a permanent commercial instrument. Once issued, changes to source bookings must never corrupt billed amounts.
 
-1. **Snapshot Storage:** When `POST /invoices` is executed, the service captures a point-in-time snapshot of each transaction's totals, taxes, fees, and metadata into `invoice_lines`.
-2. **Decoupled Persistence:** `GET /invoices/{id}` loads data strictly from `invoice_lines`. If a stored flight row in `transactions` is subsequently modified (e.g. total changed from 220.00 to 999.00), the invoice snapshot continues to reflect the frozen 220.00 EUR.
+```mermaid
+flowchart LR
+    subgraph Live Commerce
+        TX["Transaction (e.g. 220.00 EUR)"]
+    end
+    subgraph Invoicing Event
+        INV["POST /invoices"]
+        LINE["Invoice Line Snapshot (220.00 EUR frozen)"]
+    end
+    subgraph Subsequent Mutations
+        PATCH["PATCH /transactions/{id}"] -- "Checks invoice_lines" --> CONFLICT["409 Conflict: Frozen"]
+        DEL["DELETE /transactions/{id}"] -- "Checks invoice_lines" --> CONFLICT2["409 Conflict: Frozen"]
+        MUTATE["Direct DB mutation"] -. "Does not affect" .-> LINE
+    end
+
+    TX --> INV --> LINE
+```
+
+1. **Snapshot Storage:** When `POST /invoices` is executed, the service captures an immutable snapshot of each transaction's totals, taxes, fees, and metadata into `invoice_lines`.
+2. **Decoupled Persistence:** `GET /invoices/{id}` loads data strictly from `invoice_lines`. If a stored flight row in `transactions` is subsequently modified in the database (e.g. total changed from 220.00 to 999.00), the invoice snapshot continues to reflect the frozen 220.00 EUR (verified by `test4_invoiceSnapshotImmutability`).
 3. **Invoiced Transaction Protection (Freeze Rule):**
    - `PATCH /transactions/{id}` and `DELETE /transactions/{id}` perform an indexed check on `invoice_lines(transaction_id)`.
    - If the transaction is on **any** invoice, the operation aborts immediately with **`409 Conflict`**, ensuring billed money cannot be altered or torn.
-4. **Invoice Deletion:** `DELETE /invoices/{id}` removes the invoice header and its snapshot lines, leaving the underlying transaction records intact.
+4. **Invoice Deletion:** `DELETE /invoices/{id}` removes the invoice header and its snapshot lines, leaving the underlying transaction records intact (verified by `test9_deleteInvoice_preservesTransactions`).
+5. **Invoice Snapshot Update:** `PATCH /invoices/{id}` accepts a new list of transaction IDs, validates currency consistency, recomputes rollups and totals, and updates the snapshot atomically.
 
 ---
 
-## 4. High Volume & Scaling
+## 5. Error Handling & HTTP Status Code Mapping
 
-### Database Indexing
+The global exception handling architecture in `GlobalExceptionHandler` ensures structured, consistent JSON error responses across the API:
+
+| Exception Class | HTTP Status | Response Format | Scenarios Handled |
+|---|---|---|---|
+| `BadRequestException` | `400 Bad Request` | `{"error": "..."}` | Unknown transaction type, unknown `fee_kind`, empty `{}` metadata, cross-type metadata, invalid date, pagination bounds violated |
+| `HttpMessageNotReadableException` | `400 Bad Request` | `{"error": "Malformed or missing request body"}` | Malformed JSON, unparseable bodies, missing body payload |
+| `MethodArgumentNotValidException` | `400 Bad Request` | `{"error": "Validation failed: ..."}` | Bean validation constraint failures (`@NotBlank`, `@NotNull`) |
+| `IllegalArgumentException` | `400 Bad Request` | `{"error": "..."}` | Invalid constructor arguments in repository/pagination classes |
+| `NotFoundException` | `404 Not Found` | `{"error": "..."}` | Non-existent transaction ID, non-existent invoice ID |
+| `ConflictException` | `409 Conflict` | `{"error": "...", "id": "..."}` | Duplicate `external_id`, duplicate transaction ID in invoice, mixed currency invoice, freeze rule violations |
+| `DataIntegrityViolationException` | `409 Conflict` | `{"error": "..."}` | Database-level unique constraint collision during concurrent execution |
+| `Exception` (catch-all) | `500 Internal Server Error` | `{"error": "Internal server error: ..."}` | Unhandled system exceptions |
+
+---
+
+## 6. Testing, Quality Assurance & Coverage
+
+### Automated Test Suite
+The service is tested with **32 automated tests** across integration and unit test classes:
+- **`TravelCommerceIntegrationTest` (26 tests):** Full HTTP lifecycle testing against a live random-port Spring Boot container and SQLite database. Covers happy paths and failure scenarios for all 11 endpoints.
+- **`OffsetLimitRequestTest` (3 tests):** Validates limit/offset bounds, page calculation, sort preservation, and navigation (`next`, `previous`, `first`, `previousOrFirst`).
+- **`TransactionTypeConverterTest` (2 tests):** Validates bidirectional JPA entity attribute and database column mapping, including null and unknown fallback handling.
+- **`TravelCommerceApplicationTest` (1 test):** Validates Spring application context bootstrapping and main execution.
+
+### JaCoCo Code Coverage
+A strict JaCoCo coverage verification rule is enforced in `build.gradle` (`minimum = 0.80`):
+
+```bash
+./gradlew test jacocoTestReport jacocoTestCoverageVerification
+```
+
+- **Instruction Coverage:** **89.26%** (`3,201 / 3,586`)
+- **Line Coverage:** **87.91%** (`756 / 860`)
+- **Controllers Coverage:** **100.0%** (`TransactionController`, `InvoiceController`, `HealthController`)
+- **Services Coverage:** **91.6% - 97.3%** (`TransactionService`, `InvoiceService`)
+
+---
+
+## 7. High Volume & Scaling
+
+### Database Indexing Strategy
 - `transactions.external_id` (Unique index): O(1) duplicate identity lookups.
 - `invoice_lines.transaction_id`: Enables instantaneous O(1) checks for "is this transaction on an invoice?" during `PATCH` and `DELETE` requests.
 - `invoice_lines.invoice_id`: Fast snapshot joins when rendering `GET /invoices/{id}`.

@@ -20,7 +20,7 @@ The application will start on `http://localhost:8080` backed by the SQLite datab
 ```bash
 ./gradlew test jacocoTestReport
 ```
-Executes the comprehensive 32-test suite covering every endpoint, failure scenario, concurrency race, and freeze rule.
+Executes the comprehensive **32-test suite** covering every endpoint, happy path, failure scenario, concurrency race, and freeze rule.
 - **Coverage report:** `build/reports/jacoco/test/html/index.html` (Overall: **87.91% line coverage**, **89.26% instruction coverage**).
 - **Enforce 80% rule:**
 ```bash
@@ -28,12 +28,73 @@ Executes the comprehensive 32-test suite covering every endpoint, failure scenar
 ```
 
 ### 3. Manual Testing via `jsons/` Directory
-The `jsons/` directory contains ready-to-use payloads for testing all endpoints and failure scenarios:
-- `post_transaction_flight.json`, `post_transaction_hotel.json`, `post_transaction_rail.json`, `post_transaction_trip_fee.json`, `post_transaction_agent_call_fee.json`
-- `post_transaction_duplicate.json` (409 Conflict)
-- `post_transaction_invalid_type.json`, `post_transaction_invalid_fee_kind.json`, `post_transaction_empty_metadata.json`, `post_transaction_flight_as_hotel_blob.json` (400 Bad Request)
-- `patch_transaction.json`, `post_invoice_single.json`, `post_invoice_trip.json`, `post_invoice_mixed_currency.json`, `post_invoice_duplicate_id.json`, `post_invoice_empty.json`, `patch_invoice.json`
-See [`jsons/README.md`](file:///Users/miha/Projects/NavanTestTask/jsons/README.md) for curl command examples using these payloads.
+The [`jsons/`](file:///Users/miha/Projects/NavanTestTask/jsons) directory contains pre-built, ready-to-use JSON payloads for manually verifying all endpoints and failure scenarios:
+- **Valid Payloads:** `post_transaction_flight.json`, `post_transaction_hotel.json`, `post_transaction_rail.json`, `post_transaction_trip_fee.json`, `post_transaction_agent_call_fee.json`
+- **Updates:** `patch_transaction.json`, `patch_invoice.json`
+- **Invoices:** `post_invoice_single.json`, `post_invoice_trip.json`
+- **Conflict Scenarios (409):** `post_transaction_duplicate.json`, `post_invoice_mixed_currency.json`, `post_invoice_duplicate_id.json`
+- **Validation Failures (400):** `post_transaction_invalid_type.json`, `post_transaction_invalid_fee_kind.json`, `post_transaction_empty_metadata.json`, `post_transaction_flight_as_hotel_blob.json`, `post_invoice_empty.json`
+
+See [`jsons/README.md`](file:///Users/miha/Projects/NavanTestTask/jsons/README.md) for copy-paste `curl` commands for all payloads.
+
+---
+
+## Endpoint & Testing Matrix
+
+Every endpoint in the service is verified by automated integration tests for both success and failure scenarios:
+
+| Endpoint | Method | Success | Failure Scenarios & Status Codes | Automated Test Method |
+|---|---|---|---|---|
+| `/transactions` | `POST` | `201 Created` | **400 Bad Request**: unknown `type`, unknown `navan_fee.fee_kind`, empty metadata `{}`, flight as hotel blob, invalid date, malformed JSON, missing fields<br>**409 Conflict**: duplicate `external_id` (sequential & concurrent) returning existing `id` | `test1`, `test2`, `test6`, `test11`, `test20` |
+| `/transactions/{id}` | `GET` | `200 OK` | **404 Not Found**: non-existent transaction ID | `test1`, `test13` |
+| `/transactions` | `GET` | `200 OK` | **400 Bad Request**: `limit > 100`, `limit < 1`, `offset < 0` | `test10`, `test14` |
+| `/transactions/{id}` | `PATCH` | `200 OK` | **404 Not Found**: non-existent transaction ID<br>**409 Conflict**: transaction is included on an invoice (invoiced freeze)<br>**400 Bad Request**: invalid type or date | `test7`, `test15`, `test16`, `test17` |
+| `/transactions/{id}` | `DELETE` | `204 No Content` | **404 Not Found**: non-existent transaction ID<br>**409 Conflict**: transaction is included on an invoice (invoiced freeze) | `test8`, `test18`, `test19` |
+| `/invoices` | `POST` | `201 Created` | **400 Bad Request**: empty body `{}` or empty list `[]`<br>**404 Not Found**: referenced transaction ID not found<br>**409 Conflict**: mixed currencies (e.g. EUR + USD)<br>**409 Conflict**: duplicate transaction ID in request list | `test3`, `test4`, `test5`, `test21`, `test26` |
+| `/invoices/{id}` | `GET` | `200 OK` | **404 Not Found**: non-existent invoice ID | `test3`, `test4`, `test22` |
+| `/invoices` | `GET` | `200 OK` | **400 Bad Request**: `limit > 100`, `limit < 1`, `offset < 0` | `test23` |
+| `/invoices/{id}` | `PATCH` | `200 OK` | **404 Not Found**: invoice not found, or transaction in list not found<br>**409 Conflict**: duplicate transaction IDs, or mixed currency<br>**400 Bad Request**: empty transaction list | `test24` |
+| `/invoices/{id}` | `DELETE` | `204 No Content` | **404 Not Found**: non-existent invoice ID (underlying transactions remain intact) | `test9`, `test25` |
+| `/health` | `GET` | `200 OK` | N/A | `test12` |
+
+---
+
+## Core Requirements & Policy Guarantees
+
+### 1. Unknown Types and Fee Kinds (HTTP 400)
+- Unknown transaction types (e.g. `"spaceship"`) map to `TransactionType.UNSUPPORTED` during JSON deserialization and trigger an immediate **`400 Bad Request`**.
+- For `navan_fee` transactions, `metadata.fee_kind` is validated against allowed fee kinds (`trip_fee`, `agent_call_fee`). Any unrecognized or missing kind triggers an immediate **`400 Bad Request`**.
+
+### 2. Metadata Integrity: No Empty Dummies or Cross-Type Storage (HTTP 400)
+- **No Empty Dummies:** Submitting `"metadata": {}` or `null` triggers an immediate **`400 Bad Request`**.
+- **No Cross-Type Blobs:** Submitting a flight transaction with hotel metadata (or vice versa) is caught by strong structural DTO validation prior to entity creation, returning **`400 Bad Request`**.
+  - Flight requires `origin`, `destination`, `fare`, and non-empty `coupons` with flight number and route.
+  - Hotel requires `name`, `address` (`street`, `city`, `country`), `check_in`, `check_out`, `nights`, and `room_rate_per_night`.
+  - Rail requires non-empty `legs` with route and departure/arrival times.
+
+### 3. Relational Storage (No Untyped `varchar metadata` Blobs)
+- All live domain records are stored in dedicated relational tables with foreign keys and indices:
+  - `transactions` (header)
+  - `transaction_tax_lines` & `transaction_fee_lines`
+  - `transaction_flight_metadata` & `transaction_flight_coupons`
+  - `transaction_hotel_metadata` & `transaction_hotel_extras`
+  - `transaction_rail_metadata` & `transaction_rail_legs`
+  - `transaction_navan_fee_metadata`
+- Every queryable attribute is an indexed, typed column. `GET /transactions/{id}` round-trips the complete metadata structure matching the seed payloads.
+
+### 4. Atomic Persistence & Server ID Generation
+- Persistence of the header row, tax lines, fee lines, and metadata entities is encapsulated within a single Spring `@Transactional` boundary: all persist or none persist.
+- Every created transaction returns a server-generated UUID formatted as `txn_<hex>`.
+
+### 5. Duplicates, Concurrency, and Idempotency
+- **Unique Constraint:** The `transactions` table enforces a database-level `UNIQUE` constraint on `external_id`.
+- **Sequential Duplicates:** Re-posting a known `external_id` queries the unique index and returns **`409 Conflict`** with the existing resource ID (`{"error": "Transaction with external_id already exists", "id": "<existing_id>"}`). Exactly one row is stored.
+- **Concurrent Overlapping Creates:** Two or more overlapping parallel `POST /transactions` requests with the same `external_id` are synchronized at the write boundary and backed by the database unique index. Exactly one thread creates the record (`201 Created`); competing threads catch the constraint and return **`409 Conflict`** with the created transaction's ID.
+
+### 6. Money Scale & Rounding Policy
+- All monetary amounts (`total`, tax amounts, fee amounts, fares, room rates, extras, invoice totals, rollups) use `BigDecimal` with a fixed scale of **2 decimal places** and **`RoundingMode.HALF_UP`**.
+- Database columns are defined as `NUMERIC(15, 2)`.
+- Floating-point IEEE 754 arithmetic is strictly prohibited throughout the codebase.
 
 ---
 
@@ -46,187 +107,52 @@ curl -X GET http://localhost:8080/health
 
 ---
 
-### 2. Create Transactions (Single Endpoint `POST /transactions`)
+### 2. Create Transactions (`POST /transactions`)
 
-#### Flight
-```bash
-curl -X POST http://localhost:8080/transactions \
-  -H "Content-Type: application/json" \
-  -d '{
-    "type": "flight",
-    "external_id": "flight-TXL-LHR-2026-03-11",
-    "currency": "EUR",
-    "occurred_at": "2026-03-11T06:40:00Z",
-    "total": 220.0,
-    "tax_lines": [{ "name": "Airport tax", "amount": 15.0 }],
-    "fee_lines": [{ "name": "YQ", "amount": 25.0 }],
-    "metadata": {
-      "origin": "TXL",
-      "destination": "LHR",
-      "fare": 180.0,
-      "coupons": [{
-        "carrier": "BA",
-        "flight_number": "BA982",
-        "from": "TXL",
-        "to": "LHR",
-        "departure": "2026-03-11T07:00:00Z",
-        "arrival": "2026-03-11T08:20:00Z"
-      }]
-    }
-  }'
-```
-
-#### Hotel
-```bash
-curl -X POST http://localhost:8080/transactions \
-  -H "Content-Type: application/json" \
-  -d '{
-    "type": "hotel",
-    "external_id": "hotel-LON-2026-03-11",
-    "currency": "EUR",
-    "occurred_at": "2026-03-11T15:00:00Z",
-    "total": 331.7,
-    "tax_lines": [{ "name": "VAT", "rate": 0.07, "amount": 21.7 }],
-    "fee_lines": [],
-    "metadata": {
-      "name": "Hotel Mitte London",
-      "address": {
-        "street": "12 Kingsway",
-        "city": "London",
-        "country": "GB"
-      },
-      "check_in": "2026-03-11",
-      "check_out": "2026-03-13",
-      "nights": 2,
-      "room_rate_per_night": 140.0,
-      "extras": [{ "name": "Breakfast", "amount": 30.0 }]
-    }
-  }'
-```
-
-#### Rail
-```bash
-curl -X POST http://localhost:8080/transactions \
-  -H "Content-Type: application/json" \
-  -d '{
-    "type": "rail",
-    "external_id": "rail-STP-PAR-2026-03-13",
-    "currency": "EUR",
-    "occurred_at": "2026-03-13T09:00:00Z",
-    "total": 94.0,
-    "tax_lines": [],
-    "fee_lines": [{ "name": "Booking fee", "amount": 4.0 }],
-    "metadata": {
-      "legs": [
-        {
-          "origin": "London St Pancras",
-          "destination": "Lille Europe",
-          "departure": "2026-03-13T09:00:00Z",
-          "arrival": "2026-03-13T10:30:00Z",
-          "train_number": "EST9108",
-          "class": "standard"
-        },
-        {
-          "origin": "Lille Europe",
-          "destination": "Paris Nord",
-          "departure": "2026-03-13T11:00:00Z",
-          "arrival": "2026-03-13T12:05:00Z",
-          "train_number": "EST9122",
-          "class": "standard"
-        }
-      ]
-    }
-  }'
-```
-
-#### Navan Fee (Trip Fee)
-```bash
-curl -X POST http://localhost:8080/transactions \
-  -H "Content-Type: application/json" \
-  -d '{
-    "type": "navan_fee",
-    "external_id": "navan-trip-fee-2026-03-11",
-    "currency": "EUR",
-    "occurred_at": "2026-03-11T06:40:00Z",
-    "total": 25.0,
-    "tax_lines": [],
-    "fee_lines": [],
-    "metadata": {
-      "fee_kind": "trip_fee",
-      "description": "Navan trip fee",
-      "related_external_id": "flight-TXL-LHR-2026-03-11"
-    }
-  }'
-```
-
-#### Navan Fee (Agent Call Fee)
-```bash
-curl -X POST http://localhost:8080/transactions \
-  -H "Content-Type: application/json" \
-  -d '{
-    "type": "navan_fee",
-    "external_id": "navan-agent-call-2026-03-11",
-    "currency": "EUR",
-    "occurred_at": "2026-03-11T18:00:00Z",
-    "total": 15.0,
-    "tax_lines": [],
-    "fee_lines": [],
-    "metadata": {
-      "fee_kind": "agent_call_fee",
-      "description": "Agent fee for support call",
-      "related_external_id": "hotel-LON-2026-03-11"
-    }
-  }'
-```
-
-#### Unknown Transaction Type (Returns 400 Bad Request)
-Unrecognized types map to `TransactionType.UNSUPPORTED` and are rejected:
+#### Flight (Using Payload File)
 ```bash
 curl -i -X POST http://localhost:8080/transactions \
   -H "Content-Type: application/json" \
-  -d '{
-    "type": "spaceship",
-    "external_id": "ship-001",
-    "currency": "EUR",
-    "occurred_at": "2026-03-11T18:00:00Z",
-    "total": 100.0,
-    "tax_lines": [],
-    "fee_lines": [],
-    "metadata": { "detail": "warp drive" }
-  }'
+  -d @jsons/post_transaction_flight.json
 ```
-**Response:**
-```json
-HTTP/1.1 400 Bad Request
-Content-Type: application/json
 
-{
-  "error": "Unknown transaction type: spaceship"
-}
+#### Hotel (Using Payload File)
+```bash
+curl -i -X POST http://localhost:8080/transactions \
+  -H "Content-Type: application/json" \
+  -d @jsons/post_transaction_hotel.json
+```
+
+#### Rail (Using Payload File)
+```bash
+curl -i -X POST http://localhost:8080/transactions \
+  -H "Content-Type: application/json" \
+  -d @jsons/post_transaction_rail.json
+```
+
+#### Navan Fee - Trip Fee
+```bash
+curl -i -X POST http://localhost:8080/transactions \
+  -H "Content-Type: application/json" \
+  -d @jsons/post_transaction_trip_fee.json
+```
+
+#### Navan Fee - Agent Call Fee
+```bash
+curl -i -X POST http://localhost:8080/transactions \
+  -H "Content-Type: application/json" \
+  -d @jsons/post_transaction_agent_call_fee.json
 ```
 
 ---
 
-### 3. Duplicate Transaction Create (Returns 409 Conflict with Existing ID)
-Posting the same `external_id` a second time rejects duplicate persistence and returns `409 Conflict`:
+### 3. Duplicate Handling (409 Conflict)
+
+Posting an existing `external_id` returns **409 Conflict** with the existing server ID:
 ```bash
 curl -i -X POST http://localhost:8080/transactions \
   -H "Content-Type: application/json" \
-  -d '{
-    "type": "flight",
-    "external_id": "flight-TXL-LHR-2026-03-11",
-    "currency": "EUR",
-    "occurred_at": "2026-03-11T06:40:00Z",
-    "total": 220.0,
-    "tax_lines": [],
-    "fee_lines": [],
-    "metadata": {
-      "origin": "TXL",
-      "destination": "LHR",
-      "fare": 220.0,
-      "coupons": []
-    }
-  }'
+  -d @jsons/post_transaction_duplicate.json
 ```
 **Response:**
 ```json
@@ -263,11 +189,9 @@ curl -i -X GET "http://localhost:8080/transactions?limit=1000"
 
 #### Update Transaction (when NOT invoiced)
 ```bash
-curl -X PATCH http://localhost:8080/transactions/{transaction_id} \
+curl -i -X PATCH http://localhost:8080/transactions/{transaction_id} \
   -H "Content-Type: application/json" \
-  -d '{
-    "total": 240.0
-  }'
+  -d @jsons/patch_transaction.json
 ```
 
 #### Update/Delete Transaction when Invoiced (Returns 409 Conflict)
@@ -305,7 +229,7 @@ Content-Type: application/json
 
 #### Create Trip Invoice (Multiple Transaction IDs)
 ```bash
-curl -X POST http://localhost:8080/invoices \
+curl -i -X POST http://localhost:8080/invoices \
   -H "Content-Type: application/json" \
   -d '{
     "transaction_ids": [
@@ -317,7 +241,7 @@ curl -X POST http://localhost:8080/invoices \
     ]
   }'
 ```
-**Response:**
+**Response (Matches `expected-invoice.json`):**
 ```json
 {
   "id": "inv_7d3b259d646b4501a357778b86e8cf65",
@@ -356,7 +280,7 @@ curl -X GET "http://localhost:8080/invoices?limit=50&offset=0"
 
 #### Update Invoice (Rebuild Snapshot from Current Records)
 ```bash
-curl -X PATCH http://localhost:8080/invoices/{invoice_id} \
+curl -i -X PATCH http://localhost:8080/invoices/{invoice_id} \
   -H "Content-Type: application/json" \
   -d '{
     "transaction_ids": ["<new_tx_id_1>", "<new_tx_id_2>"]
