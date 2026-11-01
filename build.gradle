@@ -26,7 +26,7 @@ dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-actuator:3.3.5'
     implementation 'org.xerial:sqlite-jdbc:3.47.0.0'
     implementation 'org.hibernate.orm:hibernate-community-dialects:6.5.3.Final'
-    implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:2.6.0'
+    implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:3.2.0'
 
     testImplementation 'org.springframework.boot:spring-boot-starter-test:3.3.5'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher:1.10.5'
