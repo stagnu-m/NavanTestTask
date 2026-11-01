@@ -27,7 +27,14 @@ Executes the comprehensive **32-test suite** covering every endpoint, happy path
 ./gradlew jacocoTestCoverageVerification
 ```
 
-### 3. Manual Testing via `jsons/` Directory
+### 3. Continuous Integration (GitHub Actions)
+The repository includes a GitHub Actions CI pipeline in [`.github/workflows/ci.yml`](file:///Users/miha/Projects/NavanTestTask/.github/workflows/ci.yml) that triggers automatically on every `push` and `pull_request` to `main`:
+- **Automated Execution:** Runs `./gradlew test jacocoTestReport jacocoTestCoverageVerification` on Ubuntu with Temurin JDK 21.
+- **Coverage Gate:** Build fails automatically if code coverage drops below the 80% threshold.
+- **Step Summary:** Generates an inline Markdown coverage table in the GitHub Actions run summary.
+- **Artifacts:** Uploads both JaCoCo HTML/XML reports and JUnit test results as downloadable job artifacts (14-day retention).
+
+### 4. Manual Testing via `jsons/` Directory
 The [`jsons/`](file:///Users/miha/Projects/NavanTestTask/jsons) directory contains pre-built, ready-to-use JSON payloads for manually verifying all endpoints and failure scenarios:
 - **Valid Payloads:** `post_transaction_flight.json`, `post_transaction_hotel.json`, `post_transaction_rail.json`, `post_transaction_trip_fee.json`, `post_transaction_agent_call_fee.json`
 - **Updates:** `patch_transaction.json`, `patch_invoice.json`

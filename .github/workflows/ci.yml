@@ -1,0 +1,55 @@
+name: CI - Build, Test & Coverage
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test-and-coverage:
+    name: Test & Check Coverage
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      - name: Run Tests & JaCoCo Coverage Verification
+        run: ./gradlew test jacocoTestReport jacocoTestCoverageVerification --info
+
+      - name: Generate Coverage Summary in GitHub Actions
+        if: always()
+        run: python3 .github/scripts/coverage_summary.py
+
+      - name: Upload JaCoCo HTML & XML Reports
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: jacoco-coverage-report
+          path: build/reports/jacoco/test/
+          retention-days: 14
+
+      - name: Upload JUnit Test Results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: junit-test-results
+          path: build/reports/tests/test/
+          retention-days: 14
