@@ -5,6 +5,7 @@ This directory contains reusable JSON files to manually test every endpoint in t
 ---
 
 ## 1. Health Check
+Spring Boot Actuator health: includes `db` and `diskSpace` components, returns `503` if any is `DOWN`.
 ```bash
 curl -i http://localhost:8080/health
 ```

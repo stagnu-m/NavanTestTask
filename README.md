@@ -76,7 +76,7 @@ Every endpoint in the service is verified by automated integration tests for bot
 | `/invoices` | `GET` | `200 OK` | **400 Bad Request**: `limit > 100`, `limit < 1`, `offset < 0` | `test23` |
 | `/invoices/{id}` | `PATCH` | `200 OK` | **404 Not Found**: invoice not found, or transaction in list not found<br>**409 Conflict**: duplicate transaction IDs, or mixed currency<br>**400 Bad Request**: empty transaction list | `test24` |
 | `/invoices/{id}` | `DELETE` | `204 No Content` | **404 Not Found**: non-existent invoice ID (underlying transactions remain intact) | `test9`, `test25` |
-| `/health` | `GET` | `200 OK` | N/A | `test12` |
+| `/health` | `GET` | `200 OK` (Actuator: `db` + `diskSpace` checks) | **503 Service Unavailable**: database or disk check is `DOWN` | `test12` |
 
 ---
 
@@ -123,8 +123,20 @@ Every endpoint in the service is verified by automated integration tests for bot
 ## Example `curl` Commands
 
 ### 1. Health Check
+Served by Spring Boot Actuator at `/health`. It checks the database connection (`db`) and free disk space (`diskSpace`), and returns **`503 Service Unavailable`** if any check is `DOWN`.
 ```bash
-curl -X GET http://localhost:8080/health
+curl -i http://localhost:8080/health
+```
+**Response:**
+```json
+{
+  "status": "UP",
+  "components": {
+    "db": { "status": "UP" },
+    "diskSpace": { "status": "UP" },
+    "ping": { "status": "UP" }
+  }
+}
 ```
 
 ---

@@ -418,11 +418,14 @@ public class TravelCommerceIntegrationTest {
     }
 
     @Test
-    @DisplayName("12. Health check returns UP")
+    @DisplayName("12. Health check returns UP, including database and disk components")
     void test12_healthEndpoint() {
         ResponseEntity<JsonNode> res = restTemplate.getForEntity("/health", JsonNode.class);
         assertThat(res.getStatusCode()).isEqualTo(HttpStatus.OK);
-        assertThat(body(res).get("status").asText()).isEqualTo("UP");
+        JsonNode health = body(res);
+        assertThat(health.get("status").asText()).isEqualTo("UP");
+        assertThat(health.path("components").path("db").path("status").asText()).isEqualTo("UP");
+        assertThat(health.path("components").path("diskSpace").path("status").asText()).isEqualTo("UP");
     }
 
     @Test

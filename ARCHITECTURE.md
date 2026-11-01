@@ -181,7 +181,8 @@ A strict JaCoCo coverage verification rule is enforced in `build.gradle` across 
 - **Complexity Coverage:** **90.6%**
 - **Method Coverage:** **97.8%**
 - **Class Coverage:** **100.00%**
-- **Controllers Coverage:** **100.0%** (`TransactionController`, `InvoiceController`, `HealthController`)
+- **Controllers Coverage:** **100.0%** (`TransactionController`, `InvoiceController`)
+- **Health Endpoint:** `/health` is provided by Spring Boot Actuator (`management.endpoints.web.base-path=/`), with `db` and `diskSpace` indicators; returns `503` when any component is `DOWN`.
 - **Services Coverage:** **95.0% - 98.0%** (`TransactionService`, `InvoiceService`)
 
 ### Continuous Integration (GitHub Actions)
