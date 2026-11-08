@@ -22,7 +22,7 @@ dependencies {
     compileOnly 'com.google.code.findbugs:jsr305:3.0.2'
     implementation 'org.springframework.boot:spring-boot-starter-web:3.3.5'
     implementation 'org.springframework.boot:spring-boot-starter-data-jpa:3.3.5'
-    implementation 'org.springframework.boot:spring-boot-starter-validation:3.3.5'
+    implementation 'org.springframework.boot:spring-boot-starter-validation:4.1.2'
     implementation 'org.springframework.boot:spring-boot-starter-actuator:3.3.5'
     implementation 'org.xerial:sqlite-jdbc:3.47.0.0'
     implementation 'org.hibernate.orm:hibernate-community-dialects:6.5.3.Final'
